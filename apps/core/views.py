@@ -203,52 +203,48 @@ def operator1_upload(request):
     return render(request, "core/operator1_upload.html")
 
 
+from django.db.models import Min, Max
+
 def operator1_view(request, uuid):
     qs = DaneOperator1.objects.filter(import_uuid=uuid)
     if not qs.exists():
         raise Http404("Brak danych dla UUID")
 
-    # KLUCZOWE: bierzemy tylko rekordy z kompletem potrzebnym do wizualizacji
+    # zakres czasu na podstawie poczatek/koniec
+    agg = qs.aggregate(min_p=Min("poczatek"), max_k=Max("koniec"), max_p=Max("poczatek"))
+    min_dt = agg["min_p"]
+    max_dt = agg["max_k"] or agg["max_p"]
+
+    # bierzemy rekordy z geo + azymut/kt/zasieg (jak wcześniej) + czas
     qs_ok = qs.filter(
         wspolrzedne1__isnull=False,
         azymut1__isnull=False,
         kt1__isnull=False,
         zasig1__isnull=False,
+        poczatek__isnull=False,
     )
 
-    # Usuwamy duplikaty: ten sam BTS może występować tysiące razy w danych połączeń
-    # distinct() na values() działa w Postgres.
-    rows = (
-        qs_ok.values(
-            "wspolrzedne1",
-            "azymut1",
-            "kt1",
-            "zasig1",
-            "typ",
-            "bts1",
-        )
-        .distinct()
-    )
-
-    btsy = []
-    for r in rows:
-        p = r["wspolrzedne1"]
-        # p to GEOSGeometry / Point
-        btsy.append(
-            {
-                "coords": f"{p.y},{p.x}",  # lat,lon
-                "azymut": float(r["azymut1"]) if r["azymut1"] is not None else None,
-                "kt": float(r["kt1"]) if r["kt1"] is not None else None,
-                "zasieg": float(r["zasig1"]) if r["zasig1"] is not None else None,
-                "typ": r.get("typ") or "",
-                "bts": r.get("bts1") or "",
-            }
-        )
+    # events = rekordy czasowe, z których potem robi się lista BTSów
+    events = []
+    for row in qs_ok.only("poczatek", "koniec", "wspolrzedne1", "azymut1", "kt1", "zasig1", "typ", "bts1"):
+        p = row.wspolrzedne1
+        events.append({
+            "start_ms": int(row.poczatek.timestamp() * 1000) if row.poczatek else None,
+            "end_ms": int(row.koniec.timestamp() * 1000) if row.koniec else None,
+            "coords": f"{p.y},{p.x}",
+            "azymut": float(row.azymut1),
+            "kt": float(row.kt1),
+            "zasieg": float(row.zasig1),
+            "typ": row.typ or "",
+            "bts": row.bts1 or "",
+        })
 
     context = {
         "uuid": str(uuid),
         "dane_count": qs.count(),
-        "btsy_count": len(btsy),
-        "btsy_json": json.dumps(btsy, cls=DjangoJSONEncoder, ensure_ascii=False),
+        "min_ts": int(min_dt.timestamp() * 1000) if min_dt else None,
+        "max_ts": int(max_dt.timestamp() * 1000) if max_dt else None,
+        "events_json": json.dumps(events, cls=DjangoJSONEncoder, ensure_ascii=False),
     }
     return render(request, "core/operator1_view.html", context)
+

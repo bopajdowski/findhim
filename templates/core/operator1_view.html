@@ -10,164 +10,587 @@
   <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
 
   <style>
-    * { box-sizing: border-box; }
-    body { margin: 0; font-family: Arial, sans-serif; }
-    .topbar {
-      padding: 12px 16px;
-      border-bottom: 1px solid #e5e5e5;
-      background: #fff;
-    }
-    #map { height: calc(100vh - 58px); width: 100%; }
-    .small { color: #666; font-size: 13px; line-height: 1.4; }
-    .legend {
-      background: #fff;
-      border: 1px solid rgba(0,0,0,0.2);
-      border-radius: 6px;
-      padding: 10px 12px;
-      font-size: 12px;
-      line-height: 1.4;
-    }
-    .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; background:#ff0000; }
-    .line { display:inline-block; width:22px; height:0; border-top:2px dashed #b30000; margin: 0 6px 3px 0; }
-    .ring { display:inline-block; width:10px; height:10px; border-radius:50%; border:2px solid #0066ff; margin-right:6px; }
+      * {
+          box-sizing: border-box;
+      }
+
+      body {
+          margin: 0;
+          font-family: Arial, sans-serif;
+      }
+
+      .topbar {
+          padding: 12px 16px;
+          border-bottom: 1px solid #e5e5e5;
+          background: #fff;
+      }
+
+      .small {
+          color: #666;
+          font-size: 13px;
+          line-height: 1.4;
+      }
+
+      .timebox {
+          padding: 10px 16px;
+          border-bottom: 1px solid #e5e5e5;
+          background: #fafafa;
+          display: grid;
+          gap: 8px;
+      }
+
+      .row {
+          display: flex;
+          gap: 16px;
+          align-items: center;
+          flex-wrap: wrap;
+      }
+
+      .btn {
+          padding: 6px 10px;
+          border: 1px solid #ccc;
+          background: #fff;
+          cursor: pointer;
+          border-radius: 4px;
+          font-size: 12px;
+      }
+
+      .btn:disabled {
+          opacity: .5;
+          cursor: default;
+      }
+
+      .timeline {
+          position: relative;
+          height: 32px;
+          width: min(980px, 75vw);
+          min-width: 320px;
+          user-select: none;
+      }
+
+      .timeline .track {
+          position: absolute;
+          left: 0;
+          right: 0;
+          top: 50%;
+          height: 6px;
+          transform: translateY(-50%);
+          background: #d8dde3;
+          border-radius: 999px;
+      }
+
+      .timeline .selection {
+          position: absolute;
+          top: 50%;
+          height: 8px;
+          transform: translateY(-50%);
+          background: #1f6feb;
+          border-radius: 999px;
+          opacity: 0.9;
+          cursor: grab;
+      }
+
+      .timeline .selection:active {
+          cursor: grabbing;
+      }
+
+      .timeline .handle {
+          position: absolute;
+          top: 50%;
+          width: 14px;
+          height: 22px;
+          transform: translate(-50%, -50%);
+          background: #0b3d91;
+          border-radius: 4px;
+          cursor: ew-resize;
+          box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85);
+      }
+
+      .hiddenRange {
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 100%;
+          height: 100%;
+          opacity: 0;
+          pointer-events: none;
+      }
+
+      #map {
+          height: calc(100vh - 168px);
+          width: 100%;
+      }
+
+      .legend {
+          background: #fff;
+          border: 1px solid rgba(0, 0, 0, 0.2);
+          border-radius: 6px;
+          padding: 10px 12px;
+          font-size: 12px;
+          line-height: 1.4;
+      }
+
+      .dot {
+          display: inline-block;
+          width: 10px;
+          height: 10px;
+          border-radius: 50%;
+          margin-right: 6px;
+          background: #ff0000;
+      }
+
+      .line {
+          display: inline-block;
+          width: 22px;
+          height: 0;
+          border-top: 2px dashed #b30000;
+          margin: 0 6px 3px 0;
+      }
+
+      .ring {
+          display: inline-block;
+          width: 10px;
+          height: 10px;
+          border-radius: 50%;
+          border: 2px solid #0066ff;
+          margin-right: 6px;
+      }
   </style>
 </head>
 
 <body>
-  <div class="topbar">
-    <div><strong>UUID:</strong> <span style="font-family: monospace;">{{ uuid }}</span></div>
-    <div class="small">
-      Rekordów: <strong>{{ dane_count }}</strong> |
-      BTS do wizualizacji (komplet): <strong>{{ btsy_count }}</strong><br>
-      Azymut: 0°=północ, 90°=wschód. Zasięg: metry. Sektor: kt (stopnie), oś = azymut.
-    </div>
+<div class="topbar">
+  <div><strong>UUID:</strong> <span style="font-family: monospace;">{{ uuid }}</span></div>
+  <div class="small">
+    Oś czasu steruje filtrem zdarzeń (rekordów), a z nich wynikają BTS-y rysowane na mapie.
+  </div>
+</div>
+
+<div class="timebox">
+  <div class="row">
+    <div><strong>Wybrany od:</strong> <span id="outFrom" style="font-family: monospace;">-</span></div>
+    <div><strong>do:</strong> <span id="outTo" style="font-family: monospace;">-</span></div>
+    <div class="small" id="outCount"></div>
   </div>
 
-  <div id="map"></div>
+  <div class="row" style="gap:8px;">
+    <button class="btn" id="btnLeft" title="Przesuń okno w lewo">⟵</button>
 
-  <script>
-    const btsy = {{ btsy_json|safe }};
+    <div id="timeline" class="timeline">
+      <div class="track"></div>
+      <div id="selection" class="selection"></div>
+      <div id="handleL" class="handle handle-l" title="Start"></div>
+      <div id="handleR" class="handle handle-r" title="Koniec"></div>
+      <input id="rangeFrom" type="range" class="hiddenRange">
+      <input id="rangeTo" type="range" class="hiddenRange">
+    </div>
 
+    <button class="btn" id="btnRight" title="Przesuń okno w prawo">⟶</button>
+
+    <button class="btn" id="btnPlay" title="Odtwarzaj przesuwanie okna">Play</button>
+
+    <label class="small">Przesuwaj co (min):</label>
+    <input id="shiftMin" type="number" min="1" step="1" value="10" style="width:70px;">
+
+    <button class="btn" id="btnReset">Reset (1h)</button>
+  </div>
+
+  <div class="small">
+    Domyślny interwał: 1 godzina. Przeciągnij uchwyty lub środek (niebieski pasek), aby przesuwać okno.
+    Play przesuwa okno automatycznie o ten sam krok co strzałki.
+  </div>
+</div>
+
+<div id="map"></div>
+
+<script>
+    // Dane z Django: zakres czasu importu + lista zdarzeń (eventów) z BTS i parametrami sektora.
+    // events: [{start_ms,end_ms,coords,azymut,kt,zasieg,typ,bts}, ...]
+    const MIN_TS = {{ min_ts|default:"null" }};
+    const MAX_TS = {{ max_ts|default:"null" }};
+    const events = {{ events_json|safe }};
+
+    // Leaflet
     const map = L.map('map').setView([52.0, 19.0], 6);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors'
+        attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
 
     const layer = L.layerGroup().addTo(map);
-    const bounds = [];
 
-    let cntRange = 0, cntAz = 0, cntSector = 0, cntOmni = 0;
+    // UI
+    const rangeFrom = document.getElementById('rangeFrom');
+    const rangeTo = document.getElementById('rangeTo');
+    const outFrom = document.getElementById('outFrom');
+    const outTo = document.getElementById('outTo');
+    const outCount = document.getElementById('outCount');
 
-    btsy.forEach((bts) => {
-      const parts = String(bts.coords || '').split(',');
-      const lat = Number(parts[0]);
-      const lon = Number(parts[1]);
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    const btnLeft = document.getElementById('btnLeft');
+    const btnRight = document.getElementById('btnRight');
+    const btnReset = document.getElementById('btnReset');
+    const btnPlay = document.getElementById('btnPlay');
+    const shiftMin = document.getElementById('shiftMin');
 
-      const az = Number(bts.azymut);
-      const kt = Number(bts.kt);
-      const zas = Number(bts.zasieg);
+    const timeline = document.getElementById('timeline');
+    const selection = document.getElementById('selection');
+    const handleL = document.getElementById('handleL');
+    const handleR = document.getElementById('handleR');
 
-      if (!Number.isFinite(az) || !Number.isFinite(kt) || !Number.isFinite(zas)) return;
+    const STEP = 60 * 1000; // 1 minuta
+    const DEFAULT_WINDOW = 60 * 60 * 1000; // 1 godzina
 
-      bounds.push([lat, lon]);
+    // Play/Pause
+    let isPlaying = false;
+    let playTimer = null;
+    const playIntervalMs = 700; // tempo odświeżania (nie "czas przesunięcia osi")
 
-      const isOmni = kt >= 360;
-      const hasSector = kt > 0 && kt < 360;
-
-      // Punkt BTS
-      L.circleMarker([lat, lon], {
-        radius: 6,
-        color: '#333',
-        weight: 1,
-        fillColor: '#ff0000',
-        fillOpacity: 0.95
-      }).addTo(layer).bindPopup(`
-        <strong>${bts.bts ? bts.bts : 'BTS'}</strong><br>
-        Typ: ${bts.typ ? bts.typ : ''}<br><br>
-        Azymut: ${az}°<br>
-        Kąt: ${kt}°<br>
-        Zasięg: ${zas} m<br>
-        Tryb: ${isOmni ? 'dookólna (360°)' : 'sektor'}<br>
-      `);
-
-      // Okrąg zasięgu w metrach
-      cntRange += 1;
-      L.circle([lat, lon], {
-        radius: zas,
-        color: '#0066ff',
-        weight: 1,
-        opacity: 0.25,
-        fillOpacity: 0.0
-      }).addTo(layer);
-
-      // Linia azymutu (turf: [lon,lat], km)
-      cntAz += 1;
-      const end = turf.destination([lon, lat], zas / 1000.0, az, { units: 'kilometers' });
-      const endLat = end.geometry.coordinates[1];
-      const endLon = end.geometry.coordinates[0];
-
-      L.polyline([[lat, lon], [endLat, endLon]], {
-        color: '#b30000',
-        weight: 2,
-        dashArray: '6 10',
-        opacity: 0.85
-      }).addTo(layer);
-
-      // Sektor jako wycinek koła (arcPoints) tylko dla 0<kt<360
-      if (hasSector) {
-        cntSector += 1;
-
-        const start = az - (kt / 2.0);
-        const stop  = az + (kt / 2.0);
-
-        const steps = 60;
-        const arc = [];
-        for (let i = 0; i <= steps; i++) {
-          const bearing = start + ((stop - start) * (i / steps));
-          const p = turf.destination([lon, lat], zas / 1000.0, bearing, { units: 'kilometers' });
-          arc.push([p.geometry.coordinates[1], p.geometry.coordinates[0]]); // [lat,lon]
-        }
-
-        const sectorLatLngs = [[lat, lon], ...arc, [lat, lon]];
-        L.polygon(sectorLatLngs, {
-          color: '#0066ff',
-          weight: 1,
-          opacity: 0.6,
-          fillColor: '#0066ff',
-          fillOpacity: 0.18
-        }).addTo(layer);
-      } else if (isOmni) {
-        cntOmni += 1;
-        // dookólna: sam okrąg zasięgu (sektor pomijamy)
-      }
-    });
-
-    if (bounds.length) {
-      map.fitBounds(bounds, { padding: [20, 20], maxZoom: 16 });
+    function clamp(v, a, b) {
+        return Math.max(a, Math.min(v, b));
     }
 
-    console.log('DEBUG counts:', {
-      total_btsy: btsy.length,
-      range_circles: cntRange,
-      azymut_lines: cntAz,
-      sectors: cntSector,
-      omni: cntOmni
+    function fmt(ts) {
+        const d = new Date(Number(ts));
+        return d.toISOString().replace('T', ' ').slice(0, 19);
+    }
+
+    function normalize() {
+        let f = Number(rangeFrom.value);
+        let t = Number(rangeTo.value);
+        if (f > t) {
+            const tmp = f;
+            f = t;
+            t = tmp;
+        }
+        f = clamp(f, MIN_TS, MAX_TS);
+        t = clamp(t, MIN_TS, MAX_TS);
+        rangeFrom.value = f;
+        rangeTo.value = t;
+        return {f, t};
+    }
+
+    function xToTs(x) {
+        const rect = timeline.getBoundingClientRect();
+        const p = clamp((x - rect.left) / rect.width, 0, 1);
+        const ts = MIN_TS + p * (MAX_TS - MIN_TS);
+        return Math.round(ts / STEP) * STEP;
+    }
+
+    function renderTimeline() {
+        const {f, t} = normalize();
+
+        outFrom.textContent = fmt(f);
+        outTo.textContent = fmt(t);
+
+        const rect = timeline.getBoundingClientRect();
+        const leftP = (f - MIN_TS) / (MAX_TS - MIN_TS);
+        const rightP = (t - MIN_TS) / (MAX_TS - MIN_TS);
+
+        const leftPx = leftP * rect.width;
+        const rightPx = rightP * rect.width;
+
+        selection.style.left = `${leftPx}px`;
+        selection.style.width = `${Math.max(0, rightPx - leftPx)}px`;
+
+        handleL.style.left = `${leftPx}px`;
+        handleR.style.left = `${rightPx}px`;
+    }
+
+    function eventOverlapsWindow(ev, f, t) {
+        const s = ev.start_ms;
+        if (s === null || s === undefined) return false;
+        return s >= f && s <= t;
+    }
+
+
+    function uniqueKey(ev) {
+        // deduplikacja BTS (żeby nie rysować identycznych sektorów tysiące razy)
+        return `${ev.coords}`;
+        // return `${ev.coords}|${ev.azymut}|${ev.kt}|${ev.zasieg}`;
+
+
+    }
+
+    function redraw() {
+        const {f, t} = normalize();
+
+        const filtered = events.filter(ev => eventOverlapsWindow(ev, f, t));
+        const seen = new Set();
+        const btsy = [];
+        for (const ev of filtered) {
+            const k = uniqueKey(ev);
+            if (seen.has(k)) continue;
+            seen.add(k);
+            btsy.push(ev);
+        }
+
+        outCount.textContent = `| zdarzeń w oknie: ${filtered.length}, BTS do rysowania: ${btsy.length}`;
+
+        layer.clearLayers();
+
+        const bounds = [];
+
+        btsy.forEach((bts) => {
+            const parts = String(bts.coords || '').split(',');
+            const lat = Number(parts[0]);
+            const lon = Number(parts[1]);
+            if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+
+            const az = Number(bts.azymut);
+            const kt = Number(bts.kt);
+            const zas = Number(bts.zasieg);
+            if (!Number.isFinite(az) || !Number.isFinite(kt) || !Number.isFinite(zas)) return;
+
+            bounds.push([lat, lon]);
+
+            const isOmni = kt >= 360;
+            const hasSector = kt > 0 && kt < 360;
+
+            // Punkt BTS
+            L.circleMarker([lat, lon], {
+                radius: 6,
+                color: '#333',
+                weight: 1,
+                fillColor: '#ff0000',
+                fillOpacity: 0.95
+            }).addTo(layer).bindPopup(`
+          <strong>${bts.bts ? bts.bts : 'BTS'}</strong><br>
+          Typ: ${bts.typ ? bts.typ : ''}<br><br>
+          Azymut: ${az}°<br>
+          Kąt: ${kt}°<br>
+          Zasięg: ${zas} m<br>
+          Tryb: ${isOmni ? 'dookólna (360°)' : 'sektor'}
+        `);
+
+            // Okrąg zasięgu (metry)
+            L.circle([lat, lon], {
+                radius: zas,
+                color: '#0066ff',
+                weight: 1,
+                opacity: 0.25,
+                fillOpacity: 0.0
+            }).addTo(layer);
+
+            // Linia azymutu (turf: [lon,lat], km)
+            const end = turf.destination([lon, lat], zas / 1000.0, az, {units: 'kilometers'});
+            const endLat = end.geometry.coordinates[1];
+            const endLon = end.geometry.coordinates[0];
+
+            L.polyline([[lat, lon], [endLat, endLon]], {
+                color: '#b30000',
+                weight: 2,
+                dashArray: '6 10',
+                opacity: 0.85
+            }).addTo(layer);
+
+            // Sektor jako wycinek koła (arcPoints)
+            if (hasSector) {
+                const start = az - (kt / 2.0);
+                const stop = az + (kt / 2.0);
+
+                const steps = 60;
+                const arc = [];
+                for (let i = 0; i <= steps; i++) {
+                    const bearing = start + ((stop - start) * (i / steps));
+                    const p = turf.destination([lon, lat], zas / 1000.0, bearing, {units: 'kilometers'});
+                    arc.push([p.geometry.coordinates[1], p.geometry.coordinates[0]]); // [lat,lon]
+                }
+
+                const sectorLatLngs = [[lat, lon], ...arc, [lat, lon]];
+                L.polygon(sectorLatLngs, {
+                    color: '#0066ff',
+                    weight: 1,
+                    opacity: 0.6,
+                    fillColor: '#0066ff',
+                    fillOpacity: 0.18
+                }).addTo(layer);
+            }
+        });
+
+        if (bounds.length) {
+            map.fitBounds(bounds, {padding: [20, 20], maxZoom: 16});
+        }
+    }
+
+    function setPlayUI() {
+        btnPlay.textContent = isPlaying ? 'Pause' : 'Play';
+        btnLeft.disabled = isPlaying;
+        btnRight.disabled = isPlaying;
+    }
+
+    function stopPlay() {
+        isPlaying = false;
+        if (playTimer) {
+            clearInterval(playTimer);
+            playTimer = null;
+        }
+        setPlayUI();
+    }
+
+    function shiftWindow(dir) {
+        const stepMin = Math.max(1, Number(shiftMin.value || 10));
+        const delta = stepMin * 60 * 1000;
+
+        const {f, t} = normalize();
+        const win = t - f;
+        if (win <= 0) return;
+
+        let nf = f + dir * delta;
+        let nt = t + dir * delta;
+
+        if (nf < MIN_TS) {
+            nf = MIN_TS;
+            nt = MIN_TS + win;
+        }
+        if (nt > MAX_TS) {
+            nt = MAX_TS;
+            nf = MAX_TS - win;
+        }
+
+        rangeFrom.value = nf;
+        rangeTo.value = nt;
+
+        renderTimeline();
+        redraw();
+    }
+
+    function stepForward() {
+        shiftWindow(1);
+        const {t} = normalize();
+        if (t >= MAX_TS) stopPlay();
+    }
+
+    function startPlay() {
+        if (isPlaying) return;
+        isPlaying = true;
+        setPlayUI();
+        playTimer = setInterval(() => {
+            try {
+                stepForward();
+            } catch (e) {
+                console.error(e);
+                stopPlay();
+            }
+        }, playIntervalMs);
+    }
+
+    function initTimeUI() {
+        if (MIN_TS === null || MAX_TS === null || MIN_TS >= MAX_TS) {
+            outCount.textContent = 'Brak zakresu czasu w danych (min/max).';
+            btnLeft.disabled = true;
+            btnRight.disabled = true;
+            btnReset.disabled = true;
+            btnPlay.disabled = true;
+            return;
+        }
+
+        rangeFrom.min = MIN_TS;
+        rangeFrom.max = MAX_TS;
+        rangeFrom.step = STEP;
+        rangeTo.min = MIN_TS;
+        rangeTo.max = MAX_TS;
+        rangeTo.step = STEP;
+
+        const start = MIN_TS;
+        const end = clamp(MIN_TS + DEFAULT_WINDOW, MIN_TS + STEP, MAX_TS);
+
+        rangeFrom.value = start;
+        rangeTo.value = end;
+
+        renderTimeline();
+        redraw();
+
+        window.addEventListener('resize', () => renderTimeline());
+        setPlayUI();
+    }
+
+    // Drag: L / R / MID
+    let dragMode = null; // 'L' | 'R' | 'MID'
+    let midOffsetTs = 0;
+    let midWin = 0;
+
+    function startDrag(mode, ev) {
+        stopPlay(); // manual = stop autoplay
+        dragMode = mode;
+        ev.preventDefault();
+
+        const {f, t} = normalize();
+        if (mode === 'MID') {
+            midOffsetTs = xToTs(ev.clientX) - f;
+            midWin = t - f;
+        }
+
+        document.addEventListener('mousemove', onDrag);
+        document.addEventListener('mouseup', stopDrag);
+    }
+
+    function onDrag(ev) {
+        if (!dragMode) return;
+        const ts = xToTs(ev.clientX);
+
+        if (dragMode === 'L') {
+            rangeFrom.value = clamp(ts, MIN_TS, Number(rangeTo.value));
+        } else if (dragMode === 'R') {
+            rangeTo.value = clamp(ts, Number(rangeFrom.value), MAX_TS);
+        } else if (dragMode === 'MID') {
+            let nf = ts - midOffsetTs;
+            nf = clamp(nf, MIN_TS, MAX_TS - midWin);
+            const nt = nf + midWin;
+            rangeFrom.value = nf;
+            rangeTo.value = nt;
+        }
+
+        renderTimeline();
+        redraw();
+    }
+
+    function stopDrag() {
+        dragMode = null;
+        document.removeEventListener('mousemove', onDrag);
+        document.removeEventListener('mouseup', stopDrag);
+    }
+
+    handleL.addEventListener('mousedown', (ev) => startDrag('L', ev));
+    handleR.addEventListener('mousedown', (ev) => startDrag('R', ev));
+    selection.addEventListener('mousedown', (ev) => startDrag('MID', ev));
+
+    // Buttons
+    btnLeft.addEventListener('click', () => {
+        stopPlay();
+        shiftWindow(-1);
+    });
+    btnRight.addEventListener('click', () => {
+        stopPlay();
+        shiftWindow(1);
+    });
+    btnReset.addEventListener('click', () => {
+        stopPlay();
+        rangeFrom.value = MIN_TS;
+        rangeTo.value = clamp(MIN_TS + DEFAULT_WINDOW, MIN_TS + STEP, MAX_TS);
+        renderTimeline();
+        redraw();
     });
 
+    btnPlay.addEventListener('click', () => {
+        if (isPlaying) stopPlay();
+        else startPlay();
+    });
+
+    // Legenda
     const legend = L.control({position: 'bottomright'});
-    legend.onAdd = function() {
-      const div = L.DomUtil.create('div', 'legend');
-      div.innerHTML = `
-        <div><span class="dot"></span> BTS (komplet danych)</div>
+    legend.onAdd = function () {
+        const div = L.DomUtil.create('div', 'legend');
+        div.innerHTML = `
+        <div><span class="dot"></span> BTS w aktualnym oknie czasu</div>
         <div style="margin-top:6px;"><span class="line"></span> Linia azymutu</div>
         <div><span class="ring"></span> Zasięg (okrąg; metry)</div>
         <div>Wycinek: sektor (0&lt;kt&lt;360; oś=azymut)</div>
         <div>kt=360: dookólna (sam okrąg)</div>
       `;
-      return div;
+        return div;
     };
     legend.addTo(map);
-  </script>
+
+    initTimeUI();
+</script>
 </body>
 </html>
