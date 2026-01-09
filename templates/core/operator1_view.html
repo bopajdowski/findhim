@@ -60,6 +60,15 @@
           cursor: default;
       }
 
+      .dt {
+          font-family: monospace;
+          padding: 4px 6px;
+          border: 1px solid #cfd6dd;
+          border-radius: 4px;
+          background: #fff;
+          font-size: 12px;
+      }
+
       .timeline {
           position: relative;
           height: 32px;
@@ -117,7 +126,7 @@
       }
 
       #map {
-          height: calc(100vh - 168px);
+          height: calc(100vh - 190px);
           width: 100%;
       }
 
@@ -162,14 +171,20 @@
 <div class="topbar">
   <div><strong>UUID:</strong> <span style="font-family: monospace;">{{ uuid }}</span></div>
   <div class="small">
-    Oś czasu steruje filtrem zdarzeń (rekordów), a z nich wynikają BTS-y rysowane na mapie.
+    Oś czasu filtruje zdarzenia (rekordy), a z nich wynikają BTS-y rysowane na mapie.
   </div>
 </div>
 
 <div class="timebox">
   <div class="row">
-    <div><strong>Wybrany od:</strong> <span id="outFrom" style="font-family: monospace;">-</span></div>
-    <div><strong>do:</strong> <span id="outTo" style="font-family: monospace;">-</span></div>
+    <div>
+      <strong>Wybrany od:</strong>
+      <input id="dtFrom" class="dt" type="datetime-local" step="60">
+    </div>
+    <div>
+      <strong>do:</strong>
+      <input id="dtTo" class="dt" type="datetime-local" step="60">
+    </div>
     <div class="small" id="outCount"></div>
   </div>
 
@@ -221,8 +236,10 @@
     // UI
     const rangeFrom = document.getElementById('rangeFrom');
     const rangeTo = document.getElementById('rangeTo');
-    const outFrom = document.getElementById('outFrom');
-    const outTo = document.getElementById('outTo');
+
+    const dtFrom = document.getElementById('dtFrom');
+    const dtTo = document.getElementById('dtTo');
+
     const outCount = document.getElementById('outCount');
 
     const btnLeft = document.getElementById('btnLeft');
@@ -242,15 +259,10 @@
     // Play/Pause
     let isPlaying = false;
     let playTimer = null;
-    const playIntervalMs = 700; // tempo odświeżania (nie "czas przesunięcia osi")
+    const playIntervalMs = 200; // tempo odświeżania (nie "czas przesunięcia osi")
 
     function clamp(v, a, b) {
         return Math.max(a, Math.min(v, b));
-    }
-
-    function fmt(ts) {
-        const d = new Date(Number(ts));
-        return d.toISOString().replace('T', ' ').slice(0, 19);
     }
 
     function normalize() {
@@ -275,11 +287,34 @@
         return Math.round(ts / STEP) * STEP;
     }
 
+    function pad2(n) {
+        return String(n).padStart(2, '0');
+    }
+
+    // datetime-local: YYYY-MM-DDTHH:MM (bez sekund)
+    function tsToLocalInput(ts) {
+        const d = new Date(Number(ts));
+        const y = d.getFullYear();
+        const m = pad2(d.getMonth() + 1);
+        const day = pad2(d.getDate());
+        const h = pad2(d.getHours());
+        const min = pad2(d.getMinutes());
+        return `${y}-${m}-${day}T${h}:${min}`;
+    }
+
+    function localInputToTs(val) {
+        if (!val) return null;
+        const d = new Date(val);
+        const ts = d.getTime();
+        if (!Number.isFinite(ts)) return null;
+        return Math.round(ts / STEP) * STEP;
+    }
+
     function renderTimeline() {
         const {f, t} = normalize();
 
-        outFrom.textContent = fmt(f);
-        outTo.textContent = fmt(t);
+        dtFrom.value = tsToLocalInput(f);
+        dtTo.value = tsToLocalInput(t);
 
         const rect = timeline.getBoundingClientRect();
         const leftP = (f - MIN_TS) / (MAX_TS - MIN_TS);
@@ -296,18 +331,18 @@
     }
 
     function eventOverlapsWindow(ev, f, t) {
+        // overlap: start <= t AND (end null OR end >= f)
         const s = ev.start_ms;
+        const e = ev.end_ms;
         if (s === null || s === undefined) return false;
-        return s >= f && s <= t;
+        if (s > t) return false;
+        if (e === null || e === undefined) return true;
+        return e >= f;
     }
-
 
     function uniqueKey(ev) {
         // deduplikacja BTS (żeby nie rysować identycznych sektorów tysiące razy)
-        return `${ev.coords}`;
-        // return `${ev.coords}|${ev.azymut}|${ev.kt}|${ev.zasieg}`;
-
-
+        return `${ev.coords}|${ev.azymut}|${ev.kt}|${ev.zasieg}`;
     }
 
     function redraw() {
@@ -552,6 +587,25 @@
     handleL.addEventListener('mousedown', (ev) => startDrag('L', ev));
     handleR.addEventListener('mousedown', (ev) => startDrag('R', ev));
     selection.addEventListener('mousedown', (ev) => startDrag('MID', ev));
+
+    // Manual time inputs
+    dtFrom.addEventListener('change', () => {
+        stopPlay();
+        const ts = localInputToTs(dtFrom.value);
+        if (ts === null) return;
+        rangeFrom.value = clamp(ts, MIN_TS, Number(rangeTo.value));
+        renderTimeline();
+        redraw();
+    });
+
+    dtTo.addEventListener('change', () => {
+        stopPlay();
+        const ts = localInputToTs(dtTo.value);
+        if (ts === null) return;
+        rangeTo.value = clamp(ts, Number(rangeFrom.value), MAX_TS);
+        renderTimeline();
+        redraw();
+    });
 
     // Buttons
     btnLeft.addEventListener('click', () => {
