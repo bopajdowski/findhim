@@ -248,3 +248,43 @@ def operator1_view(request, uuid):
     }
     return render(request, "core/operator1_view.html", context)
 
+
+def operator1_heatmap1(request, uuid):
+    qs = DaneOperator1.objects.filter(import_uuid=uuid)
+    if not qs.exists():
+        raise Http404("Brak danych dla UUID")
+
+    agg = qs.aggregate(min_p=Min("poczatek"), max_k=Max("koniec"), max_p=Max("poczatek"))
+    min_dt = agg["min_p"]
+    max_dt = agg["max_k"] or agg["max_p"]
+
+    qs_ok = qs.filter(
+        wspolrzedne1__isnull=False,
+        azymut1__isnull=False,
+        kt1__isnull=False,
+        zasig1__isnull=False,
+        poczatek__isnull=False,
+    )
+
+    events = []
+    for row in qs_ok.only("poczatek", "koniec", "wspolrzedne1", "azymut1", "kt1", "zasig1", "typ", "bts1"):
+        p = row.wspolrzedne1
+        events.append({
+            "start_ms": int(row.poczatek.timestamp() * 1000) if row.poczatek else None,
+            "end_ms": int(row.koniec.timestamp() * 1000) if row.koniec else None,
+            "coords": f"{p.y},{p.x}",  # lat,lon
+            "azymut": float(row.azymut1),
+            "kt": float(row.kt1),
+            "zasieg": float(row.zasig1),
+            "typ": row.typ or "",
+            "bts": row.bts1 or "",
+        })
+
+    context = {
+        "uuid": str(uuid),
+        "dane_count": qs.count(),
+        "min_ts": int(min_dt.timestamp() * 1000) if min_dt else None,
+        "max_ts": int(max_dt.timestamp() * 1000) if max_dt else None,
+        "events_json": json.dumps(events, cls=DjangoJSONEncoder, ensure_ascii=False),
+    }
+    return render(request, "core/operator1_heatmap.html", context)

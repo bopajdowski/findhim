@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Heatmap1 - {{ uuid }}</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Leaflet.heat -->
+  <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script> <!-- [web:159] -->
+
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, sans-serif; }
+
+    .topbar {
+      padding: 12px 16px;
+      border-bottom: 1px solid #e5e5e5;
+      background: #fff;
+    }
+    .small { color: #666; font-size: 13px; line-height: 1.4; }
+
+    .timebox{
+      padding: 10px 16px;
+      border-bottom: 1px solid #e5e5e5;
+      background: #fafafa;
+      display: grid;
+      gap: 8px;
+    }
+    .row { display:flex; gap: 14px; align-items:center; flex-wrap: wrap; }
+    .btn{
+      padding: 6px 10px;
+      border: 1px solid #ccc;
+      background: #fff;
+      cursor: pointer;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    .dt{
+      font-family: monospace;
+      padding: 4px 6px;
+      border: 1px solid #cfd6dd;
+      border-radius: 4px;
+      background: #fff;
+      font-size: 12px;
+    }
+
+    #map { height: calc(100vh - 190px); width: 100%; }
+
+    /* Transparent heat canvas */
+    .leaflet-heatmap-layer { opacity: 0.55; } /* [web:160] */
+  </style>
+</head>
+
+<body>
+  <div class="topbar">
+    <div><strong>Heatmap1</strong> | UUID: <span style="font-family: monospace;">{{ uuid }}</span></div>
+    <div class="small">
+      Heatmap = nakładanie sektorów w oknie czasu. Waga punktów zależy od częstości sektora w oknie (logarytmicznie), żeby obraz nie był „jednolity”. <!-- [web:159] -->
+    </div>
+  </div>
+
+  <div class="timebox">
+    <div class="row">
+      <div>
+        <strong>Wybrany od:</strong>
+        <input id="dtFrom" class="dt" type="datetime-local" step="60">
+      </div>
+      <div>
+        <strong>do:</strong>
+        <input id="dtTo" class="dt" type="datetime-local" step="60">
+      </div>
+
+      <button class="btn" id="btnApply">Odśwież</button>
+
+      <label class="small">Promień (px):</label>
+      <input id="heatRadius" type="number" min="5" max="80" step="1" value="16" style="width:70px;">
+
+      <label class="small">Blur (px):</label>
+      <input id="heatBlur" type="number" min="0" max="80" step="1" value="6" style="width:70px;">
+
+      <label class="small">Próbki/zdarzenie:</label>
+      <input id="samplesPerEvent" type="number" min="5" max="400" step="5" value="90" style="width:85px;">
+
+      <label class="small">Kontrast (gamma):</label>
+      <input id="gamma" type="number" min="0.3" max="3.0" step="0.1" value="1.7" style="width:70px;">
+
+      <label class="small">Auto-fit:</label>
+      <input id="autoFit" type="checkbox" checked>
+
+      <span class="small" id="outInfo"></span>
+    </div>
+  </div>
+
+  <div id="map"></div>
+
+  <script>
+    const MIN_TS = {{ min_ts|default:"null" }};
+    const MAX_TS = {{ max_ts|default:"null" }};
+    const events = {{ events_json|safe }};
+
+    const map = L.map('map').setView([52.0, 19.0], 6);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    const dtFrom = document.getElementById('dtFrom');
+    const dtTo = document.getElementById('dtTo');
+    const btnApply = document.getElementById('btnApply');
+
+    const heatRadius = document.getElementById('heatRadius');
+    const heatBlur = document.getElementById('heatBlur');
+    const samplesPerEvent = document.getElementById('samplesPerEvent');
+    const gamma = document.getElementById('gamma');
+    const autoFit = document.getElementById('autoFit');
+
+    const outInfo = document.getElementById('outInfo');
+
+    function pad2(n){ return String(n).padStart(2,'0'); }
+    function tsToLocalInput(ts){
+      const d = new Date(Number(ts));
+      return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    }
+    function localInputToTs(val){
+      if (!val) return null;
+      const ts = new Date(val).getTime();
+      if (!Number.isFinite(ts)) return null;
+      return ts;
+    }
+
+    function parseCoords(coordsStr){
+      const parts = String(coordsStr || '').split(',');
+      const lat = Number(parts[0]);
+      const lon = Number(parts[1]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+      return {lat, lon};
+    }
+
+    // overlap: start <= t AND (end null OR end >= f)
+    function eventOverlapsWindow(ev, f, t){
+      const s = ev.start_ms;
+      const e = ev.end_ms;
+      if (s === null || s === undefined) return false;
+      if (s > t) return false;
+      if (e === null || e === undefined) return true;
+      return e >= f;
+    }
+
+    function sectorKey(ev){
+      // Zaokrąglenia ograniczają rozbijanie na prawie-identyczne sektory.
+      const c = String(ev.coords || '');
+      const az = Math.round(Number(ev.azymut) || 0);
+      const kt = Math.round(Number(ev.kt) || 0);
+      const zas = Math.round(Number(ev.zasieg) || 0);
+      return `${c}|${az}|${kt}|${zas}`;
+    }
+
+    // Sampling inside sector:
+    // intensity -> derived from sector frequency in time window
+    function samplePoints(ev, n, intensity){
+      const c = parseCoords(ev.coords);
+      if (!c) return [];
+
+      const az = Number(ev.azymut);
+      const kt = Number(ev.kt);
+      const zas = Number(ev.zasieg);
+      if (!Number.isFinite(az) || !Number.isFinite(kt) || !Number.isFinite(zas) || zas <= 0) return [];
+
+      const pts = [];
+      const isOmni = kt >= 360;
+      const startDeg = isOmni ? 0 : (az - kt/2);
+      const endDeg   = isOmni ? 360 : (az + kt/2);
+
+      // approx conversion meters -> degrees at given latitude
+      const latRad = c.lat * Math.PI / 180;
+      const metersPerDegLat = 111320;
+      const metersPerDegLon = 111320 * Math.cos(latRad);
+
+      for (let i = 0; i < n; i++){
+        const a = (startDeg + Math.random() * (endDeg - startDeg)) * Math.PI / 180;
+        const r = Math.sqrt(Math.random()) * zas; // uniform area density
+        const dLat = (r * Math.cos(a)) / metersPerDegLat;
+        const dLon = (r * Math.sin(a)) / metersPerDegLon;
+
+        pts.push([c.lat + dLat, c.lon + dLon, intensity]);
+      }
+      return pts;
+    }
+
+    // Normalize weights to [0..1] with gamma
+    function normalizeWeights(points, gammaVal){
+      let maxW = 0;
+      for (const p of points) if (p[2] > maxW) maxW = p[2];
+      if (maxW <= 0) return points;
+
+      const g = Math.max(0.01, Number(gammaVal || 1));
+      for (const p of points){
+        const x = p[2] / maxW;                 // 0..1
+        p[2] = Math.pow(x, g);                 // gamma contrast
+      }
+      return points;
+    }
+
+    let heat = null;
+
+    function rebuildHeat(){
+      const f = localInputToTs(dtFrom.value);
+      const t = localInputToTs(dtTo.value);
+      if (f === null || t === null || f >= t) return;
+
+      const evs = events.filter(ev => eventOverlapsWindow(ev, f, t));
+
+      // 1) sector frequency
+      const counts = new Map();
+      for (const ev of evs){
+        const k = sectorKey(ev);
+        counts.set(k, (counts.get(k) || 0) + 1);
+      }
+
+      // 2) find max count (for info only)
+      let maxC = 0;
+      for (const c of counts.values()) if (c > maxC) maxC = c;
+
+      // 3) build weighted samples
+      const nSamples = Math.max(5, Number(samplesPerEvent.value || 90));
+      const pts = [];
+      for (const ev of evs){
+        const c = counts.get(sectorKey(ev)) || 1;
+
+        // intensity: log1p(count) -> lepsza dynamika bez "przepaleń"
+        const intensity = Math.log1p(c); // [web:159]
+        const ps = samplePoints(ev, nSamples, intensity);
+        for (const p of ps) pts.push(p);
+      }
+
+      // 4) normalize + gamma
+      normalizeWeights(pts, Number(gamma.value || 1.7));
+
+      // 5) heat options
+      const radius = Math.max(5, Number(heatRadius.value || 16));
+      const blur = Math.max(0, Number(heatBlur.value || 6));
+
+      if (heat) map.removeLayer(heat);
+      heat = L.heatLayer(pts, {
+        radius: radius,
+        blur: blur,
+        maxZoom: 16,
+        // gradient "typowa heat": niebieski -> cyjan -> zielony -> żółty -> czerwony
+        gradient: { 0.15: '#0033ff', 0.35: '#00c8ff', 0.55: '#00ff6a', 0.75: '#ffe600', 1.0: '#ff2a00' }
+      }).addTo(map); // [web:159]
+
+      outInfo.textContent = `| zdarzeń: ${evs.length} | sektorów: ${counts.size} | max wystąpień sektora: ${maxC} | punktów: ${pts.length}`;
+
+      if (autoFit.checked && pts.length){
+        const b = L.latLngBounds(pts.map(p => [p[0], p[1]]));
+        map.fitBounds(b, { padding: [30, 30], maxZoom: 14 });
+      }
+    }
+
+    function init(){
+      if (MIN_TS === null || MAX_TS === null || MIN_TS >= MAX_TS) {
+        outInfo.textContent = 'Brak zakresu czasu w danych.';
+        return;
+      }
+
+      dtFrom.value = tsToLocalInput(MIN_TS);
+      dtTo.value = tsToLocalInput(Math.min(MAX_TS, MIN_TS + 60*60*1000)); // 1h
+      rebuildHeat();
+    }
+
+    btnApply.addEventListener('click', rebuildHeat);
+    heatRadius.addEventListener('change', rebuildHeat);
+    heatBlur.addEventListener('change', rebuildHeat);
+    samplesPerEvent.addEventListener('change', rebuildHeat);
+    gamma.addEventListener('change', rebuildHeat);
+    autoFit.addEventListener('change', rebuildHeat);
+    dtFrom.addEventListener('change', rebuildHeat);
+    dtTo.addEventListener('change', rebuildHeat);
+
+    init();
+  </script>
+</body>
+</html>
