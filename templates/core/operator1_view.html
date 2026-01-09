@@ -126,7 +126,7 @@
       }
 
       #map {
-          height: calc(100vh - 190px);
+          height: calc(100vh - 210px);
           width: 100%;
       }
 
@@ -164,6 +164,22 @@
           border: 2px solid #0066ff;
           margin-right: 6px;
       }
+
+      .timeline .midGrip {
+          position: absolute;
+          height: 10px;
+          top: calc(50% + 14px); /* pod belką */
+          transform: translateY(-50%);
+          background: rgba(31, 111, 235, 0.35);
+          border: 1px solid rgba(31, 111, 235, 0.9);
+          border-radius: 999px;
+          cursor: grab;
+      }
+
+      .timeline .midGrip:active {
+          cursor: grabbing;
+      }
+
   </style>
 </head>
 
@@ -171,7 +187,8 @@
 <div class="topbar">
   <div><strong>UUID:</strong> <span style="font-family: monospace;">{{ uuid }}</span></div>
   <div class="small">
-    Oś czasu filtruje zdarzenia (rekordy), a z nich wynikają BTS-y rysowane na mapie.
+    Filtr czasu działa jako overlap (zdarzenie nachodzi na okno od–do).
+    BTS-y, które wypadają z okna, nie znikają od razu — wygaszają się (fade-out).
   </div>
 </div>
 
@@ -194,8 +211,11 @@
     <div id="timeline" class="timeline">
       <div class="track"></div>
       <div id="selection" class="selection"></div>
+      <div id="midGrip" class="midGrip" title="Przeciągnij aby przesunąć okno"></div>
+
       <div id="handleL" class="handle handle-l" title="Start"></div>
       <div id="handleR" class="handle handle-r" title="Koniec"></div>
+
       <input id="rangeFrom" type="range" class="hiddenRange">
       <input id="rangeTo" type="range" class="hiddenRange">
     </div>
@@ -207,59 +227,66 @@
     <label class="small">Przesuwaj co (min):</label>
     <input id="shiftMin" type="number" min="1" step="1" value="10" style="width:70px;">
 
+    <label class="small">Wygaszanie (s):</label>
+    <input id="fadeSec" type="number" min="0" step="0.5" value="8" style="width:70px;">
+
+    <label class="small">
+      Auto-zoom:
+      <input id="autoZoom" type="checkbox" checked>
+    </label>
+
     <button class="btn" id="btnReset">Reset (1h)</button>
   </div>
 
   <div class="small">
-    Domyślny interwał: 1 godzina. Przeciągnij uchwyty lub środek (niebieski pasek), aby przesuwać okno.
-    Play przesuwa okno automatycznie o ten sam krok co strzałki.
+    Auto-zoom: dopasowuje widok do aktywnych i wygasających BTS-ów.
   </div>
 </div>
 
 <div id="map"></div>
 
 <script>
-    // Dane z Django: zakres czasu importu + lista zdarzeń (eventów) z BTS i parametrami sektora.
-    // events: [{start_ms,end_ms,coords,azymut,kt,zasieg,typ,bts}, ...]
     const MIN_TS = {{ min_ts|default:"null" }};
     const MAX_TS = {{ max_ts|default:"null" }};
     const events = {{ events_json|safe }};
 
-    // Leaflet
     const map = L.map('map').setView([52.0, 19.0], 6);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
 
-    const layer = L.layerGroup().addTo(map);
+    const layerActive = L.layerGroup().addTo(map);
+    const layerFading = L.layerGroup().addTo(map);
 
-    // UI
     const rangeFrom = document.getElementById('rangeFrom');
     const rangeTo = document.getElementById('rangeTo');
-
     const dtFrom = document.getElementById('dtFrom');
     const dtTo = document.getElementById('dtTo');
-
     const outCount = document.getElementById('outCount');
 
     const btnLeft = document.getElementById('btnLeft');
     const btnRight = document.getElementById('btnRight');
     const btnReset = document.getElementById('btnReset');
     const btnPlay = document.getElementById('btnPlay');
+
     const shiftMin = document.getElementById('shiftMin');
+    const fadeSec = document.getElementById('fadeSec');
+    const autoZoom = document.getElementById('autoZoom');
 
     const timeline = document.getElementById('timeline');
     const selection = document.getElementById('selection');
     const handleL = document.getElementById('handleL');
     const handleR = document.getElementById('handleR');
+    const midGrip = document.getElementById('midGrip');
 
-    const STEP = 60 * 1000; // 1 minuta
-    const DEFAULT_WINDOW = 60 * 60 * 1000; // 1 godzina
+    const STEP = 60 * 1000;
+    const DEFAULT_WINDOW = 60 * 60 * 1000;
 
-    // Play/Pause
     let isPlaying = false;
     let playTimer = null;
-    const playIntervalMs = 200; // tempo odświeżania (nie "czas przesunięcia osi")
+    const playIntervalMs = 700;
+
+    const btsLayers = new Map();
 
     function clamp(v, a, b) {
         return Math.max(a, Math.min(v, b));
@@ -291,7 +318,6 @@
         return String(n).padStart(2, '0');
     }
 
-    // datetime-local: YYYY-MM-DDTHH:MM (bez sekund)
     function tsToLocalInput(ts) {
         const d = new Date(Number(ts));
         const y = d.getFullYear();
@@ -312,7 +338,6 @@
 
     function renderTimeline() {
         const {f, t} = normalize();
-
         dtFrom.value = tsToLocalInput(f);
         dtTo.value = tsToLocalInput(t);
 
@@ -325,13 +350,15 @@
 
         selection.style.left = `${leftPx}px`;
         selection.style.width = `${Math.max(0, rightPx - leftPx)}px`;
+        midGrip.style.left = `${leftPx}px`;
+        midGrip.style.width = `${Math.max(0, rightPx - leftPx)}px`;
+
 
         handleL.style.left = `${leftPx}px`;
         handleR.style.left = `${rightPx}px`;
     }
 
     function eventOverlapsWindow(ev, f, t) {
-        // overlap: start <= t AND (end null OR end >= f)
         const s = ev.start_ms;
         const e = ev.end_ms;
         if (s === null || s === undefined) return false;
@@ -340,110 +367,263 @@
         return e >= f;
     }
 
-    function uniqueKey(ev) {
-        // deduplikacja BTS (żeby nie rysować identycznych sektorów tysiące razy)
+    function btsKey(ev) {
         return `${ev.coords}|${ev.azymut}|${ev.kt}|${ev.zasieg}`;
     }
 
+    function parseCoords(coordsStr) {
+        const parts = String(coordsStr || '').split(',');
+        const lat = Number(parts[0]);
+        const lon = Number(parts[1]);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+        return {lat, lon};
+    }
+
+    function getFadeMs() {
+        const s = Number(fadeSec.value);
+        if (!Number.isFinite(s) || s < 0) return 0;
+        return Math.round(s * 1000);
+    }
+
+    function setLayerOpacity(layerObj, alpha) {
+        if (layerObj.marker && layerObj.marker.setStyle) {
+            layerObj.marker.setStyle({fillOpacity: 0.95 * alpha, opacity: 1.0 * alpha});
+        }
+        if (layerObj.rangeCircle && layerObj.rangeCircle.setStyle) {
+            layerObj.rangeCircle.setStyle({opacity: 0.25 * alpha, fillOpacity: 0.0});
+        }
+        if (layerObj.azLine && layerObj.azLine.setStyle) {
+            layerObj.azLine.setStyle({opacity: 0.85 * alpha});
+        }
+        if (layerObj.sector && layerObj.sector.setStyle) {
+            layerObj.sector.setStyle({opacity: 0.6 * alpha, fillOpacity: 0.18 * alpha});
+        }
+    }
+
+    function createBtsLayers(ev) {
+        const c = parseCoords(ev.coords);
+        if (!c) return null;
+
+        const az = Number(ev.azymut);
+        const kt = Number(ev.kt);
+        const zas = Number(ev.zasieg);
+        if (!Number.isFinite(az) || !Number.isFinite(kt) || !Number.isFinite(zas)) return null;
+
+        const isOmni = kt >= 360;
+        const hasSector = kt > 0 && kt < 360;
+
+        const marker = L.circleMarker([c.lat, c.lon], {
+            radius: 6,
+            color: '#333',
+            weight: 1,
+            fillColor: '#ff0000',
+            fillOpacity: 0.95,
+            opacity: 1.0
+        }).bindPopup(`
+        <strong>${ev.bts ? ev.bts : 'BTS'}</strong><br>
+        Typ: ${ev.typ ? ev.typ : ''}<br><br>
+        Azymut: ${az}°<br>
+        Kąt: ${kt}°<br>
+        Zasięg: ${zas} m<br>
+        Tryb: ${isOmni ? 'dookólna (360°)' : 'sektor'}
+      `);
+
+        const rangeCircle = L.circle([c.lat, c.lon], {
+            radius: zas,
+            color: '#0066ff',
+            weight: 1,
+            opacity: 0.25,
+            fillOpacity: 0.0
+        });
+
+        const end = turf.destination([c.lon, c.lat], zas / 1000.0, az, {units: 'kilometers'});
+        const endLat = end.geometry.coordinates[1];
+        const endLon = end.geometry.coordinates[0];
+
+        const azLine = L.polyline([[c.lat, c.lon], [endLat, endLon]], {
+            color: '#b30000',
+            weight: 2,
+            dashArray: '6 10',
+            opacity: 0.85
+        });
+
+        let sector = null;
+        if (hasSector) {
+            const start = az - (kt / 2.0);
+            const stop = az + (kt / 2.0);
+
+            const steps = 60;
+            const arc = [];
+            for (let i = 0; i <= steps; i++) {
+                const bearing = start + ((stop - start) * (i / steps));
+                const p = turf.destination([c.lon, c.lat], zas / 1000.0, bearing, {units: 'kilometers'});
+                arc.push([p.geometry.coordinates[1], p.geometry.coordinates[0]]);
+            }
+
+            const sectorLatLngs = [[c.lat, c.lon], ...arc, [c.lat, c.lon]];
+            sector = L.polygon(sectorLatLngs, {
+                color: '#0066ff',
+                weight: 1,
+                opacity: 0.6,
+                fillColor: '#0066ff',
+                fillOpacity: 0.18
+            });
+        }
+
+        return {marker, rangeCircle, azLine, sector};
+    }
+
+    function addToActive(layerObj) {
+        layerActive.addLayer(layerObj.marker);
+        layerActive.addLayer(layerObj.rangeCircle);
+        layerActive.addLayer(layerObj.azLine);
+        if (layerObj.sector) layerActive.addLayer(layerObj.sector);
+    }
+
+    function moveToFading(layerObj) {
+        layerActive.removeLayer(layerObj.marker);
+        layerActive.removeLayer(layerObj.rangeCircle);
+        layerActive.removeLayer(layerObj.azLine);
+        if (layerObj.sector) layerActive.removeLayer(layerObj.sector);
+
+        layerFading.addLayer(layerObj.marker);
+        layerFading.addLayer(layerObj.rangeCircle);
+        layerFading.addLayer(layerObj.azLine);
+        if (layerObj.sector) layerFading.addLayer(layerObj.sector);
+    }
+
+    function removeCompletely(layerObj) {
+        layerFading.removeLayer(layerObj.marker);
+        layerFading.removeLayer(layerObj.rangeCircle);
+        layerFading.removeLayer(layerObj.azLine);
+        if (layerObj.sector) layerFading.removeLayer(layerObj.sector);
+    }
+
+    // ---- Auto-zoom / auto-pan to visible BTS (active + fading) ----
+    let lastFitAt = 0;
+    const fitThrottleMs = 250;
+
+    function collectVisibleMarkerLatLngs() {
+        const pts = [];
+        const collect = (group) => {
+            group.eachLayer((l) => {
+                if (l instanceof L.CircleMarker) pts.push(l.getLatLng());
+            });
+        };
+        collect(layerActive);
+        collect(layerFading);
+        return pts;
+    }
+
+    function maybeFitToVisibleBts() {
+        if (!autoZoom.checked) return;
+        const now = Date.now();
+        if (now - lastFitAt < fitThrottleMs) return;
+        lastFitAt = now;
+
+        const pts = collectVisibleMarkerLatLngs();
+        if (!pts.length) return;
+
+        const bounds = L.latLngBounds(pts);
+        map.fitBounds(bounds, {padding: [30, 30], maxZoom: 16, animate: true});
+    }
+
+    // --------------------------------------------------------------
+
     function redraw() {
+        const now = Date.now();
         const {f, t} = normalize();
 
         const filtered = events.filter(ev => eventOverlapsWindow(ev, f, t));
+
         const seen = new Set();
+        const currentKeys = new Set();
         const btsy = [];
+
         for (const ev of filtered) {
-            const k = uniqueKey(ev);
+            const k = btsKey(ev);
             if (seen.has(k)) continue;
             seen.add(k);
-            btsy.push(ev);
+            currentKeys.add(k);
+            btsy.push({key: k, ev});
         }
 
-        outCount.textContent = `| zdarzeń w oknie: ${filtered.length}, BTS do rysowania: ${btsy.length}`;
+        outCount.textContent = `| zdarzeń w oknie: ${filtered.length}, BTS w oknie: ${btsy.length}, cache: ${btsLayers.size}`;
 
-        layer.clearLayers();
+        // active / create
+        for (const item of btsy) {
+            const key = item.key;
+            const ev = item.ev;
 
-        const bounds = [];
+            if (!btsLayers.has(key)) {
+                const layers = createBtsLayers(ev);
+                if (!layers) continue;
 
-        btsy.forEach((bts) => {
-            const parts = String(bts.coords || '').split(',');
-            const lat = Number(parts[0]);
-            const lon = Number(parts[1]);
-            if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+                const rec = {
+                    ...layers,
+                    createdAtMs: now,
+                    lastSeenMs: now,
+                    state: 'active',
+                    fadeStartMs: null
+                };
 
-            const az = Number(bts.azymut);
-            const kt = Number(bts.kt);
-            const zas = Number(bts.zasieg);
-            if (!Number.isFinite(az) || !Number.isFinite(kt) || !Number.isFinite(zas)) return;
+                setLayerOpacity(rec, 1.0);
+                addToActive(rec);
+                btsLayers.set(key, rec);
+            } else {
+                const rec = btsLayers.get(key);
+                rec.lastSeenMs = now;
 
-            bounds.push([lat, lon]);
+                if (rec.state === 'fading') {
+                    rec.state = 'active';
+                    rec.fadeStartMs = null;
+                    setLayerOpacity(rec, 1.0);
 
-            const isOmni = kt >= 360;
-            const hasSector = kt > 0 && kt < 360;
-
-            // Punkt BTS
-            L.circleMarker([lat, lon], {
-                radius: 6,
-                color: '#333',
-                weight: 1,
-                fillColor: '#ff0000',
-                fillOpacity: 0.95
-            }).addTo(layer).bindPopup(`
-          <strong>${bts.bts ? bts.bts : 'BTS'}</strong><br>
-          Typ: ${bts.typ ? bts.typ : ''}<br><br>
-          Azymut: ${az}°<br>
-          Kąt: ${kt}°<br>
-          Zasięg: ${zas} m<br>
-          Tryb: ${isOmni ? 'dookólna (360°)' : 'sektor'}
-        `);
-
-            // Okrąg zasięgu (metry)
-            L.circle([lat, lon], {
-                radius: zas,
-                color: '#0066ff',
-                weight: 1,
-                opacity: 0.25,
-                fillOpacity: 0.0
-            }).addTo(layer);
-
-            // Linia azymutu (turf: [lon,lat], km)
-            const end = turf.destination([lon, lat], zas / 1000.0, az, {units: 'kilometers'});
-            const endLat = end.geometry.coordinates[1];
-            const endLon = end.geometry.coordinates[0];
-
-            L.polyline([[lat, lon], [endLat, endLon]], {
-                color: '#b30000',
-                weight: 2,
-                dashArray: '6 10',
-                opacity: 0.85
-            }).addTo(layer);
-
-            // Sektor jako wycinek koła (arcPoints)
-            if (hasSector) {
-                const start = az - (kt / 2.0);
-                const stop = az + (kt / 2.0);
-
-                const steps = 60;
-                const arc = [];
-                for (let i = 0; i <= steps; i++) {
-                    const bearing = start + ((stop - start) * (i / steps));
-                    const p = turf.destination([lon, lat], zas / 1000.0, bearing, {units: 'kilometers'});
-                    arc.push([p.geometry.coordinates[1], p.geometry.coordinates[0]]); // [lat,lon]
+                    addToActive(rec);
+                    layerFading.removeLayer(rec.marker);
+                    layerFading.removeLayer(rec.rangeCircle);
+                    layerFading.removeLayer(rec.azLine);
+                    if (rec.sector) layerFading.removeLayer(rec.sector);
                 }
-
-                const sectorLatLngs = [[lat, lon], ...arc, [lat, lon]];
-                L.polygon(sectorLatLngs, {
-                    color: '#0066ff',
-                    weight: 1,
-                    opacity: 0.6,
-                    fillColor: '#0066ff',
-                    fillOpacity: 0.18
-                }).addTo(layer);
             }
-        });
-
-        if (bounds.length) {
-            map.fitBounds(bounds, {padding: [20, 20], maxZoom: 16});
         }
+
+        // fade-out
+        const fadeMs = getFadeMs();
+        for (const [key, rec] of btsLayers.entries()) {
+            if (currentKeys.has(key)) continue;
+
+            if (fadeMs === 0) {
+                if (rec.state === 'active') {
+                    layerActive.removeLayer(rec.marker);
+                    layerActive.removeLayer(rec.rangeCircle);
+                    layerActive.removeLayer(rec.azLine);
+                    if (rec.sector) layerActive.removeLayer(rec.sector);
+                } else {
+                    removeCompletely(rec);
+                }
+                btsLayers.delete(key);
+                continue;
+            }
+
+            if (rec.state !== 'fading') {
+                rec.state = 'fading';
+                rec.fadeStartMs = now;
+                moveToFading(rec);
+            }
+
+            const elapsed = now - rec.fadeStartMs;
+            const alpha = clamp(1.0 - (elapsed / fadeMs), 0, 1);
+            setLayerOpacity(rec, alpha);
+
+            if (alpha <= 0) {
+                removeCompletely(rec);
+                btsLayers.delete(key);
+            }
+        }
+
+        // NEW: keep map following visible points (active + fading)
+        maybeFitToVisibleBts();
     }
 
     function setPlayUI() {
@@ -525,26 +705,22 @@
         rangeTo.max = MAX_TS;
         rangeTo.step = STEP;
 
-        const start = MIN_TS;
-        const end = clamp(MIN_TS + DEFAULT_WINDOW, MIN_TS + STEP, MAX_TS);
-
-        rangeFrom.value = start;
-        rangeTo.value = end;
+        rangeFrom.value = MIN_TS;
+        rangeTo.value = clamp(MIN_TS + DEFAULT_WINDOW, MIN_TS + STEP, MAX_TS);
 
         renderTimeline();
-        redraw();
+        redraw(); // will also do auto-zoom if enabled
 
         window.addEventListener('resize', () => renderTimeline());
         setPlayUI();
     }
 
-    // Drag: L / R / MID
-    let dragMode = null; // 'L' | 'R' | 'MID'
+    let dragMode = null;
     let midOffsetTs = 0;
     let midWin = 0;
 
     function startDrag(mode, ev) {
-        stopPlay(); // manual = stop autoplay
+        stopPlay();
         dragMode = mode;
         ev.preventDefault();
 
@@ -587,8 +763,9 @@
     handleL.addEventListener('mousedown', (ev) => startDrag('L', ev));
     handleR.addEventListener('mousedown', (ev) => startDrag('R', ev));
     selection.addEventListener('mousedown', (ev) => startDrag('MID', ev));
+    midGrip.addEventListener('mousedown', (ev) => startDrag('MID', ev));
 
-    // Manual time inputs
+
     dtFrom.addEventListener('change', () => {
         stopPlay();
         const ts = localInputToTs(dtFrom.value);
@@ -607,7 +784,6 @@
         redraw();
     });
 
-    // Buttons
     btnLeft.addEventListener('click', () => {
         stopPlay();
         shiftWindow(-1);
@@ -629,16 +805,16 @@
         else startPlay();
     });
 
-    // Legenda
     const legend = L.control({position: 'bottomright'});
     legend.onAdd = function () {
         const div = L.DomUtil.create('div', 'legend');
         div.innerHTML = `
-        <div><span class="dot"></span> BTS w aktualnym oknie czasu</div>
+        <div><span class="dot"></span> BTS w oknie (active)</div>
         <div style="margin-top:6px;"><span class="line"></span> Linia azymutu</div>
         <div><span class="ring"></span> Zasięg (okrąg; metry)</div>
         <div>Wycinek: sektor (0&lt;kt&lt;360; oś=azymut)</div>
         <div>kt=360: dookólna (sam okrąg)</div>
+        <div style="margin-top:6px;">Auto-zoom obejmuje aktywne i wygasające BTS-y.</div>
       `;
         return div;
     };
