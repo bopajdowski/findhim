@@ -6,7 +6,7 @@ from .models import DaneOperator1
 
 @admin.register(DaneOperator1)
 class DaneOperator1Admin(admin.ModelAdmin):
-    list_display = ['import_uuid', 'poczatek', 'typ', 'wspolrzedne1_link', 'msisdn1', 'wspolrzedne1']
+    list_display = ['import_uuid', 'poczatek', 'typ', 'wspolrzedne1_link', 'msisdn1', 'wspolrzedne1','kt1','azymut1','zasig1']
     list_filter = ['typ', 'import_uuid']
     search_fields = ['msisddn1', 'msisdn2', 'imei1']
 

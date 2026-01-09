@@ -1,150 +1,173 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>🗺️ BTS Coverage Map - {{ uuid }}</title>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; display: flex; flex-direction: column; height: 100vh; }
-        .header { background: #fff; padding: 15px 20px; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; z-index: 1000; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
-        .header h1 { font-size: 18px; color: #333; }
-        .stats { font-size: 14px; color: #666; }
-        #map { flex: 1; width: 100%; z-index: 1; }
-        .legend { background: white; padding: 10px; border-radius: 4px; border: 2px solid rgba(0,0,0,0.2); font-size: 12px; line-height: 1.5; }
-        .legend i { width: 18px; height: 18px; float: left; margin-right: 8px; opacity: 0.7; }
-        .legend .line { height: 3px; margin-top: 8px; }
-    </style>
+  <title>Wizualizacja BTS - {{ uuid }}</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, sans-serif; }
+    .topbar {
+      padding: 12px 16px;
+      border-bottom: 1px solid #e5e5e5;
+      background: #fff;
+    }
+    #map { height: calc(100vh - 58px); width: 100%; }
+    .small { color: #666; font-size: 13px; line-height: 1.4; }
+    .legend {
+      background: #fff;
+      border: 1px solid rgba(0,0,0,0.2);
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; background:#ff0000; }
+    .line { display:inline-block; width:22px; height:0; border-top:2px dashed #b30000; margin: 0 6px 3px 0; }
+    .ring { display:inline-block; width:10px; height:10px; border-radius:50%; border:2px solid #0066ff; margin-right:6px; }
+  </style>
 </head>
+
 <body>
-    <div class="header">
-        <h1>Wizualizacja Zasięgu BTS</h1>
-        <div class="stats">
-            UUID: <span style="font-family: monospace;">{{ uuid }}</span> |
-            Rekordy: <strong>{{ dane_count }}</strong> |
-            Zgeo: <strong>{{ btsy_count }}</strong>
-        </div>
+  <div class="topbar">
+    <div><strong>UUID:</strong> <span style="font-family: monospace;">{{ uuid }}</span></div>
+    <div class="small">
+      Rekordów: <strong>{{ dane_count }}</strong> |
+      BTS do wizualizacji (komplet): <strong>{{ btsy_count }}</strong><br>
+      Azymut: 0°=północ, 90°=wschód. Zasięg: metry. Sektor: kt (stopnie), oś = azymut.
     </div>
+  </div>
 
-    <div id="map"></div>
+  <div id="map"></div>
 
-    <script>
-        // 1. DANE Z DJANGO (JSON)
-        const btsy = {{ btsy_json|safe }};
+  <script>
+    const btsy = {{ btsy_json|safe }};
 
-        // 2. INICJALIZACJA MAPY
-        const map = L.map('map').setView([52.0, 19.0], 6); // Polska default
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        }).addTo(map);
+    const map = L.map('map').setView([52.0, 19.0], 6);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
 
-        const bounds = [];
-        const layerGroup = L.layerGroup().addTo(map);
+    const layer = L.layerGroup().addTo(map);
+    const bounds = [];
 
-        // 3. RYSOWANIE BTSÓW
-        btsy.forEach((bts, index) => {
-            try {
-                // Parsowanie koordynatów "lat,lon"
-                const parts = bts.coords.split(',');
-                const lat = parseFloat(parts[0]);
-                const lon = parseFloat(parts[1]);
+    let cntRange = 0, cntAz = 0, cntSector = 0, cntOmni = 0;
 
-                if (isNaN(lat) || isNaN(lon)) return;
+    btsy.forEach((bts) => {
+      const parts = String(bts.coords || '').split(',');
+      const lat = Number(parts[0]);
+      const lon = Number(parts[1]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
 
-                const pos = [lat, lon];
-                bounds.push(pos);
+      const az = Number(bts.azymut);
+      const kt = Number(bts.kt);
+      const zas = Number(bts.zasieg);
 
-                // Parametry wizualizacji
-                const azimuth = parseFloat(bts.azymut) || 0;
-                const beamWidth = parseFloat(bts.kt) || 60; // Domyślny kąt jeśli brak
-                const rangeMeters = parseFloat(bts.zasieg) || 500; // Domyślny zasięg jeśli brak
-                const rangeKm = rangeMeters / 1000;
+      if (!Number.isFinite(az) || !Number.isFinite(kt) || !Number.isFinite(zas)) return;
 
-                // A. MARKER (Kropka)
-                L.circleMarker(pos, {
-                    radius: 6,
-                    color: '#333',
-                    weight: 1,
-                    fillColor: '#ff0000',
-                    fillOpacity: 0.9
-                }).addTo(layerGroup).bindPopup(`
-                    <strong>${bts.bts || 'BTS'}</strong><br>
-                    Typ: ${bts.typ}<br>
-                    Azymut: ${azimuth}°<br>
-                    Kąt: ${beamWidth}°<br>
-                    Zasięg: ${rangeMeters}m
-                `);
+      bounds.push([lat, lon]);
 
-                // B. SEKTOR (Wycinek koła) - tylko jeśli jest azymut
-                if (azimuth !== 0 || beamWidth > 0) {
-                    const centerPoint = turf.point([lon, lat]); // Turf używa [lon, lat]!
-                    const options = {steps: 64, units: 'kilometers'};
+      const isOmni = kt >= 360;
+      const hasSector = kt > 0 && kt < 360;
 
-                    // Obliczanie kątów start/stop
-                    const angleStart = azimuth - (beamWidth / 2);
-                    const angleEnd = azimuth + (beamWidth / 2);
+      // Punkt BTS
+      L.circleMarker([lat, lon], {
+        radius: 6,
+        color: '#333',
+        weight: 1,
+        fillColor: '#ff0000',
+        fillOpacity: 0.95
+      }).addTo(layer).bindPopup(`
+        <strong>${bts.bts ? bts.bts : 'BTS'}</strong><br>
+        Typ: ${bts.typ ? bts.typ : ''}<br><br>
+        Azymut: ${az}°<br>
+        Kąt: ${kt}°<br>
+        Zasięg: ${zas} m<br>
+        Tryb: ${isOmni ? 'dookólna (360°)' : 'sektor'}<br>
+      `);
 
-                    // Rysowanie łuku (sector) za pomocą Turf.js
-                    // Turf sector: center, radius, bearing1, bearing2
-                    const sectorPoly = turf.sector(
-                        [lon, lat],
-                        rangeKm,
-                        angleStart,
-                        angleEnd,
-                        options
-                    );
+      // Okrąg zasięgu w metrach
+      cntRange += 1;
+      L.circle([lat, lon], {
+        radius: zas,
+        color: '#0066ff',
+        weight: 1,
+        opacity: 0.25,
+        fillOpacity: 0.0
+      }).addTo(layer);
 
-                    // Konwersja GeoJSON -> Leaflet
-                    L.geoJSON(sectorPoly, {
-                        style: {
-                            color: '#0066ff',
-                            weight: 1,
-                            opacity: 0.6,
-                            fillColor: '#0066ff',
-                            fillOpacity: 0.15
-                        }
-                    }).addTo(layerGroup);
+      // Linia azymutu (turf: [lon,lat], km)
+      cntAz += 1;
+      const end = turf.destination([lon, lat], zas / 1000.0, az, { units: 'kilometers' });
+      const endLat = end.geometry.coordinates[1];
+      const endLon = end.geometry.coordinates[0];
 
-                    // C. LINIA AZYMUTU (Przerywana)
-                    const destPoint = turf.destination(centerPoint, rangeKm, azimuth, options);
-                    // Leaflet używa [lat, lon]
-                    const latLngDest = [destPoint.geometry.coordinates[1], destPoint.geometry.coordinates[0]];
+      L.polyline([[lat, lon], [endLat, endLon]], {
+        color: '#b30000',
+        weight: 2,
+        dashArray: '6 10',
+        opacity: 0.85
+      }).addTo(layer);
 
-                    L.polyline([pos, latLngDest], {
-                        color: 'red',
-                        weight: 2,
-                        dashArray: '5, 10',
-                        opacity: 0.8
-                    }).addTo(layerGroup);
-                }
+      // Sektor jako wycinek koła (arcPoints) tylko dla 0<kt<360
+      if (hasSector) {
+        cntSector += 1;
 
-            } catch (e) {
-                console.error("Błąd rysowania BTS:", bts, e);
-            }
-        });
+        const start = az - (kt / 2.0);
+        const stop  = az + (kt / 2.0);
 
-        // 4. DOPASOWANIE WIDOKU
-        if (bounds.length > 0) {
-            map.fitBounds(bounds, {padding: [50, 50]});
+        const steps = 60;
+        const arc = [];
+        for (let i = 0; i <= steps; i++) {
+          const bearing = start + ((stop - start) * (i / steps));
+          const p = turf.destination([lon, lat], zas / 1000.0, bearing, { units: 'kilometers' });
+          arc.push([p.geometry.coordinates[1], p.geometry.coordinates[0]]); // [lat,lon]
         }
 
-        // 5. LEGENDA
-        const legend = L.control({position: 'bottomright'});
-        legend.onAdd = function (map) {
-            const div = L.DomUtil.create('div', 'legend');
-            div.innerHTML = `
-                <h4>Legenda</h4>
-                <div><i style="background: #ff0000; border-radius: 50%"></i> Lokalizacja BTS</div>
-                <div><i style="background: #0066ff; opacity: 0.3"></i> Sektor pokrycia</div>
-                <div><i class="line" style="border-top: 2px dashed red"></i> Kierunek główny (Azymut)</div>
-            `;
-            return div;
-        };
-        legend.addTo(map);
+        const sectorLatLngs = [[lat, lon], ...arc, [lat, lon]];
+        L.polygon(sectorLatLngs, {
+          color: '#0066ff',
+          weight: 1,
+          opacity: 0.6,
+          fillColor: '#0066ff',
+          fillOpacity: 0.18
+        }).addTo(layer);
+      } else if (isOmni) {
+        cntOmni += 1;
+        // dookólna: sam okrąg zasięgu (sektor pomijamy)
+      }
+    });
 
-    </script>
+    if (bounds.length) {
+      map.fitBounds(bounds, { padding: [20, 20], maxZoom: 16 });
+    }
+
+    console.log('DEBUG counts:', {
+      total_btsy: btsy.length,
+      range_circles: cntRange,
+      azymut_lines: cntAz,
+      sectors: cntSector,
+      omni: cntOmni
+    });
+
+    const legend = L.control({position: 'bottomright'});
+    legend.onAdd = function() {
+      const div = L.DomUtil.create('div', 'legend');
+      div.innerHTML = `
+        <div><span class="dot"></span> BTS (komplet danych)</div>
+        <div style="margin-top:6px;"><span class="line"></span> Linia azymutu</div>
+        <div><span class="ring"></span> Zasięg (okrąg; metry)</div>
+        <div>Wycinek: sektor (0&lt;kt&lt;360; oś=azymut)</div>
+        <div>kt=360: dookólna (sam okrąg)</div>
+      `;
+      return div;
+    };
+    legend.addTo(map);
+  </script>
 </body>
 </html>
