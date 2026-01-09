@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Wizualizacja BTS - {{ uuid }}</title>
+  <title>Wizualizacja zdarzeń - {{ uuid }}</title>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
@@ -10,249 +10,177 @@
   <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
 
   <style>
-      * {
-          box-sizing: border-box;
-      }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, sans-serif; }
 
-      body {
-          margin: 0;
-          font-family: Arial, sans-serif;
-      }
+    .topbar {
+      padding: 12px 16px;
+      border-bottom: 1px solid #e5e5e5;
+      background: #fff;
+    }
+    .small { color: #666; font-size: 13px; line-height: 1.4; }
 
-      .topbar {
-          padding: 12px 16px;
-          border-bottom: 1px solid #e5e5e5;
-          background: #fff;
-      }
+    .timebox{
+      padding: 10px 16px;
+      border-bottom: 1px solid #e5e5e5;
+      background: #fafafa;
+      display: grid;
+      gap: 8px;
+    }
+    .row { display:flex; gap: 16px; align-items:center; flex-wrap: wrap; }
+    .btn{
+      padding: 6px 10px;
+      border: 1px solid #ccc;
+      background: #fff;
+      cursor: pointer;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    .btn:disabled{ opacity:.5; cursor:default; }
 
-      .small {
-          color: #666;
-          font-size: 13px;
-          line-height: 1.4;
-      }
+    .dt{
+      font-family: monospace;
+      padding: 4px 6px;
+      border: 1px solid #cfd6dd;
+      border-radius: 4px;
+      background: #fff;
+      font-size: 12px;
+    }
 
-      .timebox {
-          padding: 10px 16px;
-          border-bottom: 1px solid #e5e5e5;
-          background: #fafafa;
-          display: grid;
-          gap: 8px;
-      }
+    .timeline{
+      position: relative;
+      height: 44px;
+      width: min(980px, 75vw);
+      min-width: 320px;
+      user-select: none;
+    }
+    .timeline .track{
+      position:absolute; left:0; right:0; top: 50%;
+      height: 6px;
+      transform: translateY(-50%);
+      background: #d8dde3;
+      border-radius: 999px;
+    }
+    .timeline .selection{
+      position:absolute; top:50%;
+      height: 8px;
+      transform: translateY(-50%);
+      background: #1f6feb;
+      border-radius: 999px;
+      opacity: 0.9;
+      cursor: grab;
+    }
+    .timeline .selection:active{ cursor: grabbing; }
+    .timeline .handle{
+      position:absolute; top:50%;
+      width: 14px; height: 22px;
+      transform: translate(-50%, -50%);
+      background: #0b3d91;
+      border-radius: 4px;
+      cursor: ew-resize;
+      box-shadow: 0 0 0 2px rgba(255,255,255,0.85);
+    }
 
-      .row {
-          display: flex;
-          gap: 16px;
-          align-items: center;
-          flex-wrap: wrap;
-      }
+    .timeline .midGrip{
+      position:absolute;
+      height: 10px;
+      top: calc(50% + 16px);
+      transform: translateY(-50%);
+      background: rgba(31,111,235,0.25);
+      border: 1px solid rgba(31,111,235,0.85);
+      border-radius: 999px;
+      cursor: grab;
+    }
+    .timeline .midGrip:active{ cursor: grabbing; }
 
-      .btn {
-          padding: 6px 10px;
-          border: 1px solid #ccc;
-          background: #fff;
-          cursor: pointer;
-          border-radius: 4px;
-          font-size: 12px;
-      }
+    .hiddenRange{
+      position:absolute;
+      left:0; top:0; width:100%; height:100%;
+      opacity: 0;
+      pointer-events: none;
+    }
 
-      .btn:disabled {
-          opacity: .5;
-          cursor: default;
-      }
+    #map { height: calc(100vh - 240px); width: 100%; }
 
-      .dt {
-          font-family: monospace;
-          padding: 4px 6px;
-          border: 1px solid #cfd6dd;
-          border-radius: 4px;
-          background: #fff;
-          font-size: 12px;
-      }
-
-      .timeline {
-          position: relative;
-          height: 32px;
-          width: min(980px, 75vw);
-          min-width: 320px;
-          user-select: none;
-      }
-
-      .timeline .track {
-          position: absolute;
-          left: 0;
-          right: 0;
-          top: 50%;
-          height: 6px;
-          transform: translateY(-50%);
-          background: #d8dde3;
-          border-radius: 999px;
-      }
-
-      .timeline .selection {
-          position: absolute;
-          top: 50%;
-          height: 8px;
-          transform: translateY(-50%);
-          background: #1f6feb;
-          border-radius: 999px;
-          opacity: 0.9;
-          cursor: grab;
-      }
-
-      .timeline .selection:active {
-          cursor: grabbing;
-      }
-
-      .timeline .handle {
-          position: absolute;
-          top: 50%;
-          width: 14px;
-          height: 22px;
-          transform: translate(-50%, -50%);
-          background: #0b3d91;
-          border-radius: 4px;
-          cursor: ew-resize;
-          box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85);
-      }
-
-      .hiddenRange {
-          position: absolute;
-          left: 0;
-          top: 0;
-          width: 100%;
-          height: 100%;
-          opacity: 0;
-          pointer-events: none;
-      }
-
-      #map {
-          height: calc(100vh - 210px);
-          width: 100%;
-      }
-
-      .legend {
-          background: #fff;
-          border: 1px solid rgba(0, 0, 0, 0.2);
-          border-radius: 6px;
-          padding: 10px 12px;
-          font-size: 12px;
-          line-height: 1.4;
-      }
-
-      .dot {
-          display: inline-block;
-          width: 10px;
-          height: 10px;
-          border-radius: 50%;
-          margin-right: 6px;
-          background: #ff0000;
-      }
-
-      .line {
-          display: inline-block;
-          width: 22px;
-          height: 0;
-          border-top: 2px dashed #b30000;
-          margin: 0 6px 3px 0;
-      }
-
-      .ring {
-          display: inline-block;
-          width: 10px;
-          height: 10px;
-          border-radius: 50%;
-          border: 2px solid #0066ff;
-          margin-right: 6px;
-      }
-
-      .timeline .midGrip {
-          position: absolute;
-          height: 10px;
-          top: calc(50% + 14px); /* pod belką */
-          transform: translateY(-50%);
-          background: rgba(31, 111, 235, 0.35);
-          border: 1px solid rgba(31, 111, 235, 0.9);
-          border-radius: 999px;
-          cursor: grab;
-      }
-
-      .timeline .midGrip:active {
-          cursor: grabbing;
-      }
-
+    .legend {
+      background: #fff;
+      border: 1px solid rgba(0,0,0,0.2);
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; background:#ff0000; }
+    .line { display:inline-block; width:22px; height:0; border-top:2px dashed #b30000; margin: 0 6px 3px 0; }
+    .ring { display:inline-block; width:10px; height:10px; border-radius:50%; border:2px solid #0066ff; margin-right:6px; }
   </style>
 </head>
 
 <body>
-<div class="topbar">
-  <div><strong>UUID:</strong> <span style="font-family: monospace;">{{ uuid }}</span></div>
-  <div class="small">
-    Filtr czasu działa jako overlap (zdarzenie nachodzi na okno od–do).
-    BTS-y, które wypadają z okna, nie znikają od razu — wygaszają się (fade-out).
-  </div>
-</div>
-
-<div class="timebox">
-  <div class="row">
-    <div>
-      <strong>Wybrany od:</strong>
-      <input id="dtFrom" class="dt" type="datetime-local" step="60">
+  <div class="topbar">
+    <div><strong>UUID:</strong> <span style="font-family: monospace;">{{ uuid }}</span></div>
+    <div class="small">
+      Wszystkie zdarzenia są wizualizowane osobno. Auto-zoom obejmuje BTS oraz ich zasięg/sektory/linie.
     </div>
-    <div>
-      <strong>do:</strong>
-      <input id="dtTo" class="dt" type="datetime-local" step="60">
-    </div>
-    <div class="small" id="outCount"></div>
   </div>
 
-  <div class="row" style="gap:8px;">
-    <button class="btn" id="btnLeft" title="Przesuń okno w lewo">⟵</button>
-
-    <div id="timeline" class="timeline">
-      <div class="track"></div>
-      <div id="selection" class="selection"></div>
-      <div id="midGrip" class="midGrip" title="Przeciągnij aby przesunąć okno"></div>
-
-      <div id="handleL" class="handle handle-l" title="Start"></div>
-      <div id="handleR" class="handle handle-r" title="Koniec"></div>
-
-      <input id="rangeFrom" type="range" class="hiddenRange">
-      <input id="rangeTo" type="range" class="hiddenRange">
+  <div class="timebox">
+    <div class="row">
+      <div>
+        <strong>Wybrany od:</strong>
+        <input id="dtFrom" class="dt" type="datetime-local" step="60">
+      </div>
+      <div>
+        <strong>do:</strong>
+        <input id="dtTo" class="dt" type="datetime-local" step="60">
+      </div>
+      <div class="small" id="outCount"></div>
     </div>
 
-    <button class="btn" id="btnRight" title="Przesuń okno w prawo">⟶</button>
+    <div class="row" style="gap:8px;">
+      <button class="btn" id="btnLeft" title="Przesuń okno w lewo">⟵</button>
 
-    <button class="btn" id="btnPlay" title="Odtwarzaj przesuwanie okna">Play</button>
+      <div id="timeline" class="timeline">
+        <div class="track"></div>
+        <div id="selection" class="selection"></div>
+        <div id="midGrip" class="midGrip" title="Przeciągnij aby przesunąć okno"></div>
+        <div id="handleL" class="handle handle-l" title="Start"></div>
+        <div id="handleR" class="handle handle-r" title="Koniec"></div>
+        <input id="rangeFrom" type="range" class="hiddenRange">
+        <input id="rangeTo" type="range" class="hiddenRange">
+      </div>
 
-    <label class="small">Przesuwaj co (min):</label>
-    <input id="shiftMin" type="number" min="1" step="1" value="10" style="width:70px;">
+      <button class="btn" id="btnRight" title="Przesuń okno w prawo">⟶</button>
 
-    <label class="small">Wygaszanie (s):</label>
-    <input id="fadeSec" type="number" min="0" step="0.5" value="8" style="width:70px;">
+      <button class="btn" id="btnPlay" title="Odtwarzaj przesuwanie okna">Play</button>
 
-    <label class="small">
-      Auto-zoom:
-      <input id="autoZoom" type="checkbox" checked>
-    </label>
+      <label class="small">Przesuwaj co (min):</label>
+      <input id="shiftMin" type="number" min="1" step="1" value="10" style="width:70px;">
 
-    <button class="btn" id="btnReset">Reset (1h)</button>
+      <label class="small">Wygaszanie (s):</label>
+      <input id="fadeSec" type="number" min="0" step="0.5" value="8" style="width:70px;">
+
+      <label class="small">
+        Auto-zoom:
+        <input id="autoZoom" type="checkbox" checked>
+      </label>
+
+      <button class="btn" id="btnReset">Reset (1h)</button>
+    </div>
+
+    <div class="small" id="debugBox" style="color:#b00020;"></div>
   </div>
 
-  <div class="small">
-    Auto-zoom: dopasowuje widok do aktywnych i wygasających BTS-ów.
-  </div>
-</div>
+  <div id="map"></div>
 
-<div id="map"></div>
-
-<script>
+  <script>
     const MIN_TS = {{ min_ts|default:"null" }};
     const MAX_TS = {{ max_ts|default:"null" }};
     const events = {{ events_json|safe }};
 
     const map = L.map('map').setView([52.0, 19.0], 6);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors'
+      attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
 
     const layerActive = L.layerGroup().addTo(map);
@@ -275,9 +203,11 @@
 
     const timeline = document.getElementById('timeline');
     const selection = document.getElementById('selection');
+    const midGrip = document.getElementById('midGrip');
     const handleL = document.getElementById('handleL');
     const handleR = document.getElementById('handleR');
-    const midGrip = document.getElementById('midGrip');
+
+    const debugBox = document.getElementById('debugBox');
 
     const STEP = 60 * 1000;
     const DEFAULT_WINDOW = 60 * 60 * 1000;
@@ -286,478 +216,460 @@
     let playTimer = null;
     const playIntervalMs = 700;
 
-    const btsLayers = new Map();
+    const MAX_VISIBLE_EVENTS = 4000;
 
-    function clamp(v, a, b) {
-        return Math.max(a, Math.min(v, b));
+    function showErr(e, where){
+      const msg = `[${where}] ${e && e.message ? e.message : e}`;
+      console.error(msg, e);
+      if (debugBox) debugBox.textContent = msg;
     }
 
-    function normalize() {
-        let f = Number(rangeFrom.value);
-        let t = Number(rangeTo.value);
-        if (f > t) {
-            const tmp = f;
-            f = t;
-            t = tmp;
+    function clamp(v, a, b){ return Math.max(a, Math.min(v, b)); }
+
+    function normalize(){
+      let f = Number(rangeFrom.value);
+      let t = Number(rangeTo.value);
+      if (f > t){ const tmp = f; f = t; t = tmp; }
+      f = clamp(f, MIN_TS, MAX_TS);
+      t = clamp(t, MIN_TS, MAX_TS);
+      rangeFrom.value = f;
+      rangeTo.value = t;
+      return {f,t};
+    }
+
+    function xToTs(x){
+      const rect = timeline.getBoundingClientRect();
+      const p = clamp((x - rect.left) / rect.width, 0, 1);
+      const ts = MIN_TS + p * (MAX_TS - MIN_TS);
+      return Math.round(ts / STEP) * STEP;
+    }
+
+    function pad2(n){ return String(n).padStart(2,'0'); }
+
+    function tsToLocalInput(ts){
+      const d = new Date(Number(ts));
+      const y = d.getFullYear();
+      const m = pad2(d.getMonth()+1);
+      const day = pad2(d.getDate());
+      const h = pad2(d.getHours());
+      const min = pad2(d.getMinutes());
+      return `${y}-${m}-${day}T${h}:${min}`;
+    }
+
+    function localInputToTs(val){
+      if (!val) return null;
+      const d = new Date(val);
+      const ts = d.getTime();
+      if (!Number.isFinite(ts)) return null;
+      return Math.round(ts / STEP) * STEP;
+    }
+
+    function renderTimeline(){
+      const {f,t} = normalize();
+      dtFrom.value = tsToLocalInput(f);
+      dtTo.value = tsToLocalInput(t);
+
+      const rect = timeline.getBoundingClientRect();
+      const leftP = (f - MIN_TS) / (MAX_TS - MIN_TS);
+      const rightP = (t - MIN_TS) / (MAX_TS - MIN_TS);
+
+      const leftPx = leftP * rect.width;
+      const rightPx = rightP * rect.width;
+      const w = Math.max(0, rightPx - leftPx);
+
+      selection.style.left = `${leftPx}px`;
+      selection.style.width = `${w}px`;
+
+      midGrip.style.left = `${leftPx}px`;
+      midGrip.style.width = `${w}px`;
+
+      handleL.style.left = `${leftPx}px`;
+      handleR.style.left = `${rightPx}px`;
+    }
+
+    function distanceOutsideWindowMs(ev, f, t){
+      const s = ev.start_ms;
+      const e = (ev.end_ms === null || ev.end_ms === undefined) ? s : ev.end_ms;
+      if (s === null || s === undefined) return Infinity;
+
+      if (s > t) return s - t;
+      if (e < f) return f - e;
+      return 0;
+    }
+
+    function parseCoords(coordsStr){
+      const parts = String(coordsStr || '').split(',');
+      const lat = Number(parts[0]);
+      const lon = Number(parts[1]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+      return {lat, lon};
+    }
+
+    function getFadeMs(){
+      const s = Number(fadeSec.value);
+      if (!Number.isFinite(s) || s < 0) return 0;
+      return Math.round(s * 1000);
+    }
+
+    const eventLayers = new Map();
+
+    function setLayerOpacity(layerObj, alpha){
+      if (layerObj.marker && layerObj.marker.setStyle) {
+        layerObj.marker.setStyle({ fillOpacity: 0.95 * alpha, opacity: 1.0 * alpha });
+      }
+      if (layerObj.rangeCircle && layerObj.rangeCircle.setStyle) {
+        layerObj.rangeCircle.setStyle({ opacity: 0.25 * alpha, fillOpacity: 0.0 });
+      }
+      if (layerObj.azLine && layerObj.azLine.setStyle) {
+        layerObj.azLine.setStyle({ opacity: 0.85 * alpha });
+      }
+      if (layerObj.sector && layerObj.sector.setStyle) {
+        layerObj.sector.setStyle({ opacity: 0.6 * alpha, fillOpacity: 0.18 * alpha });
+      }
+    }
+
+    function createEventLayers(ev){
+      const c = parseCoords(ev.coords);
+      if (!c) return null;
+
+      const az = Number(ev.azymut);
+      const kt = Number(ev.kt);
+      const zas = Number(ev.zasieg);
+      if (!Number.isFinite(az) || !Number.isFinite(kt) || !Number.isFinite(zas)) return null;
+
+      const isOmni = kt >= 360;
+      const hasSector = kt > 0 && kt < 360;
+
+      const marker = L.circleMarker([c.lat, c.lon], {
+        radius: 5,
+        color: '#333',
+        weight: 1,
+        fillColor: '#ff0000',
+        fillOpacity: 0.95,
+        opacity: 1.0
+      });
+
+      const rangeCircle = L.circle([c.lat, c.lon], {
+        radius: zas,
+        color: '#0066ff',
+        weight: 1,
+        opacity: 0.25,
+        fillOpacity: 0.0
+      });
+
+      const end = turf.destination([c.lon, c.lat], zas / 1000.0, az, { units: 'kilometers' });
+      const endLat = end.geometry.coordinates[1];
+      const endLon = end.geometry.coordinates[0];
+
+      const azLine = L.polyline([[c.lat, c.lon], [endLat, endLon]], {
+        color: '#b30000',
+        weight: 2,
+        dashArray: '6 10',
+        opacity: 0.85
+      });
+
+      let sector = null;
+      if (hasSector) {
+        const start = az - (kt / 2.0);
+        const stop  = az + (kt / 2.0);
+
+        const steps = 40;
+        const arc = [];
+        for (let i = 0; i <= steps; i++) {
+          const bearing = start + ((stop - start) * (i / steps));
+          const p = turf.destination([c.lon, c.lat], zas / 1000.0, bearing, { units: 'kilometers' });
+          arc.push([p.geometry.coordinates[1], p.geometry.coordinates[0]]);
         }
-        f = clamp(f, MIN_TS, MAX_TS);
-        t = clamp(t, MIN_TS, MAX_TS);
-        rangeFrom.value = f;
-        rangeTo.value = t;
-        return {f, t};
-    }
 
-    function xToTs(x) {
-        const rect = timeline.getBoundingClientRect();
-        const p = clamp((x - rect.left) / rect.width, 0, 1);
-        const ts = MIN_TS + p * (MAX_TS - MIN_TS);
-        return Math.round(ts / STEP) * STEP;
-    }
+        const sectorLatLngs = [[c.lat, c.lon], ...arc, [c.lat, c.lon]];
+        sector = L.polygon(sectorLatLngs, {
+          color: '#0066ff',
+          weight: 1,
+          opacity: 0.6,
+          fillColor: '#0066ff',
+          fillOpacity: 0.18
+        });
+      }
 
-    function pad2(n) {
-        return String(n).padStart(2, '0');
-    }
-
-    function tsToLocalInput(ts) {
-        const d = new Date(Number(ts));
-        const y = d.getFullYear();
-        const m = pad2(d.getMonth() + 1);
-        const day = pad2(d.getDate());
-        const h = pad2(d.getHours());
-        const min = pad2(d.getMinutes());
-        return `${y}-${m}-${day}T${h}:${min}`;
-    }
-
-    function localInputToTs(val) {
-        if (!val) return null;
-        const d = new Date(val);
-        const ts = d.getTime();
-        if (!Number.isFinite(ts)) return null;
-        return Math.round(ts / STEP) * STEP;
-    }
-
-    function renderTimeline() {
-        const {f, t} = normalize();
-        dtFrom.value = tsToLocalInput(f);
-        dtTo.value = tsToLocalInput(t);
-
-        const rect = timeline.getBoundingClientRect();
-        const leftP = (f - MIN_TS) / (MAX_TS - MIN_TS);
-        const rightP = (t - MIN_TS) / (MAX_TS - MIN_TS);
-
-        const leftPx = leftP * rect.width;
-        const rightPx = rightP * rect.width;
-
-        selection.style.left = `${leftPx}px`;
-        selection.style.width = `${Math.max(0, rightPx - leftPx)}px`;
-        midGrip.style.left = `${leftPx}px`;
-        midGrip.style.width = `${Math.max(0, rightPx - leftPx)}px`;
-
-
-        handleL.style.left = `${leftPx}px`;
-        handleR.style.left = `${rightPx}px`;
-    }
-
-    function eventOverlapsWindow(ev, f, t) {
-        const s = ev.start_ms;
-        const e = ev.end_ms;
-        if (s === null || s === undefined) return false;
-        if (s > t) return false;
-        if (e === null || e === undefined) return true;
-        return e >= f;
-    }
-
-    function btsKey(ev) {
-        return `${ev.coords}|${ev.azymut}|${ev.kt}|${ev.zasieg}`;
-    }
-
-    function parseCoords(coordsStr) {
-        const parts = String(coordsStr || '').split(',');
-        const lat = Number(parts[0]);
-        const lon = Number(parts[1]);
-        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-        return {lat, lon};
-    }
-
-    function getFadeMs() {
-        const s = Number(fadeSec.value);
-        if (!Number.isFinite(s) || s < 0) return 0;
-        return Math.round(s * 1000);
-    }
-
-    function setLayerOpacity(layerObj, alpha) {
-        if (layerObj.marker && layerObj.marker.setStyle) {
-            layerObj.marker.setStyle({fillOpacity: 0.95 * alpha, opacity: 1.0 * alpha});
-        }
-        if (layerObj.rangeCircle && layerObj.rangeCircle.setStyle) {
-            layerObj.rangeCircle.setStyle({opacity: 0.25 * alpha, fillOpacity: 0.0});
-        }
-        if (layerObj.azLine && layerObj.azLine.setStyle) {
-            layerObj.azLine.setStyle({opacity: 0.85 * alpha});
-        }
-        if (layerObj.sector && layerObj.sector.setStyle) {
-            layerObj.sector.setStyle({opacity: 0.6 * alpha, fillOpacity: 0.18 * alpha});
-        }
-    }
-
-    function createBtsLayers(ev) {
-        const c = parseCoords(ev.coords);
-        if (!c) return null;
-
-        const az = Number(ev.azymut);
-        const kt = Number(ev.kt);
-        const zas = Number(ev.zasieg);
-        if (!Number.isFinite(az) || !Number.isFinite(kt) || !Number.isFinite(zas)) return null;
-
-        const isOmni = kt >= 360;
-        const hasSector = kt > 0 && kt < 360;
-
-        const marker = L.circleMarker([c.lat, c.lon], {
-            radius: 6,
-            color: '#333',
-            weight: 1,
-            fillColor: '#ff0000',
-            fillOpacity: 0.95,
-            opacity: 1.0
-        }).bindPopup(`
+      marker.bindPopup(`
         <strong>${ev.bts ? ev.bts : 'BTS'}</strong><br>
         Typ: ${ev.typ ? ev.typ : ''}<br><br>
+        Start: ${ev.start_ms ? new Date(ev.start_ms).toISOString() : ''}<br>
+        Koniec: ${ev.end_ms ? new Date(ev.end_ms).toISOString() : '(brak / punkt)'}<br><br>
         Azymut: ${az}°<br>
         Kąt: ${kt}°<br>
         Zasięg: ${zas} m<br>
         Tryb: ${isOmni ? 'dookólna (360°)' : 'sektor'}
       `);
 
-        const rangeCircle = L.circle([c.lat, c.lon], {
-            radius: zas,
-            color: '#0066ff',
-            weight: 1,
-            opacity: 0.25,
-            fillOpacity: 0.0
-        });
-
-        const end = turf.destination([c.lon, c.lat], zas / 1000.0, az, {units: 'kilometers'});
-        const endLat = end.geometry.coordinates[1];
-        const endLon = end.geometry.coordinates[0];
-
-        const azLine = L.polyline([[c.lat, c.lon], [endLat, endLon]], {
-            color: '#b30000',
-            weight: 2,
-            dashArray: '6 10',
-            opacity: 0.85
-        });
-
-        let sector = null;
-        if (hasSector) {
-            const start = az - (kt / 2.0);
-            const stop = az + (kt / 2.0);
-
-            const steps = 60;
-            const arc = [];
-            for (let i = 0; i <= steps; i++) {
-                const bearing = start + ((stop - start) * (i / steps));
-                const p = turf.destination([c.lon, c.lat], zas / 1000.0, bearing, {units: 'kilometers'});
-                arc.push([p.geometry.coordinates[1], p.geometry.coordinates[0]]);
-            }
-
-            const sectorLatLngs = [[c.lat, c.lon], ...arc, [c.lat, c.lon]];
-            sector = L.polygon(sectorLatLngs, {
-                color: '#0066ff',
-                weight: 1,
-                opacity: 0.6,
-                fillColor: '#0066ff',
-                fillOpacity: 0.18
-            });
-        }
-
-        return {marker, rangeCircle, azLine, sector};
+      return { marker, rangeCircle, azLine, sector };
     }
 
-    function addToActive(layerObj) {
-        layerActive.addLayer(layerObj.marker);
-        layerActive.addLayer(layerObj.rangeCircle);
-        layerActive.addLayer(layerObj.azLine);
-        if (layerObj.sector) layerActive.addLayer(layerObj.sector);
+    function addToActive(rec){
+      layerActive.addLayer(rec.marker);
+      layerActive.addLayer(rec.rangeCircle);
+      layerActive.addLayer(rec.azLine);
+      if (rec.sector) layerActive.addLayer(rec.sector);
     }
 
-    function moveToFading(layerObj) {
-        layerActive.removeLayer(layerObj.marker);
-        layerActive.removeLayer(layerObj.rangeCircle);
-        layerActive.removeLayer(layerObj.azLine);
-        if (layerObj.sector) layerActive.removeLayer(layerObj.sector);
+    function moveToFading(rec){
+      layerActive.removeLayer(rec.marker);
+      layerActive.removeLayer(rec.rangeCircle);
+      layerActive.removeLayer(rec.azLine);
+      if (rec.sector) layerActive.removeLayer(rec.sector);
 
-        layerFading.addLayer(layerObj.marker);
-        layerFading.addLayer(layerObj.rangeCircle);
-        layerFading.addLayer(layerObj.azLine);
-        if (layerObj.sector) layerFading.addLayer(layerObj.sector);
+      layerFading.addLayer(rec.marker);
+      layerFading.addLayer(rec.rangeCircle);
+      layerFading.addLayer(rec.azLine);
+      if (rec.sector) layerFading.addLayer(rec.sector);
     }
 
-    function removeCompletely(layerObj) {
-        layerFading.removeLayer(layerObj.marker);
-        layerFading.removeLayer(layerObj.rangeCircle);
-        layerFading.removeLayer(layerObj.azLine);
-        if (layerObj.sector) layerFading.removeLayer(layerObj.sector);
+    function removeCompletely(rec){
+      layerFading.removeLayer(rec.marker);
+      layerFading.removeLayer(rec.rangeCircle);
+      layerFading.removeLayer(rec.azLine);
+      if (rec.sector) layerFading.removeLayer(rec.sector);
     }
 
-    // ---- Auto-zoom / auto-pan to visible BTS (active + fading) ----
+    // ===== NEW AUTO-ZOOM: bounds from full geometry (rangeCircle/sector/azLine), not only markers =====
     let lastFitAt = 0;
     const fitThrottleMs = 250;
 
-    function collectVisibleMarkerLatLngs() {
-        const pts = [];
-        const collect = (group) => {
-            group.eachLayer((l) => {
-                if (l instanceof L.CircleMarker) pts.push(l.getLatLng());
-            });
-        };
-        collect(layerActive);
-        collect(layerFading);
-        return pts;
+    function extendBoundsFromLayer(bounds, layer){
+      if (!layer) return;
+      if (typeof layer.getBounds === 'function') {
+        const b = layer.getBounds();
+        if (b && b.isValid && b.isValid()) bounds.extend(b);
+        return;
+      }
+      if (typeof layer.getLatLng === 'function') {
+        bounds.extend(layer.getLatLng());
+        return;
+      }
     }
 
-    function maybeFitToVisibleBts() {
-        if (!autoZoom.checked) return;
-        const now = Date.now();
-        if (now - lastFitAt < fitThrottleMs) return;
-        lastFitAt = now;
+    function computeVisibleBounds(){
+      let bounds = null;
 
-        const pts = collectVisibleMarkerLatLngs();
-        if (!pts.length) return;
+      for (const rec of eventLayers.values()){
+        // include BOTH active and fading geometries
+        if (!bounds) bounds = L.latLngBounds([]);
 
-        const bounds = L.latLngBounds(pts);
-        map.fitBounds(bounds, {padding: [30, 30], maxZoom: 16, animate: true});
+        extendBoundsFromLayer(bounds, rec.rangeCircle); // full coverage circle
+        extendBoundsFromLayer(bounds, rec.sector);      // sector polygon
+        extendBoundsFromLayer(bounds, rec.azLine);      // az line polyline
+        extendBoundsFromLayer(bounds, rec.marker);      // fallback
+      }
+
+      if (bounds && bounds.isValid && bounds.isValid()) return bounds;
+      return null;
     }
 
-    // --------------------------------------------------------------
+    function maybeFitToVisible(){
+      if (!autoZoom.checked) return;
+      const now = Date.now();
+      if (now - lastFitAt < fitThrottleMs) return;
+      lastFitAt = now;
 
-    function redraw() {
-        const now = Date.now();
-        const {f, t} = normalize();
+      const bounds = computeVisibleBounds();
+      if (!bounds) return;
 
-        const filtered = events.filter(ev => eventOverlapsWindow(ev, f, t));
+      map.fitBounds(bounds, { padding: [30, 30], maxZoom: 16, animate: true });
+    }
+    // ===== END NEW AUTO-ZOOM =====
 
-        const seen = new Set();
-        const currentKeys = new Set();
-        const btsy = [];
+    function updateMembership(){
+      const {f,t} = normalize();
+      const fadeMs = getFadeMs();
 
-        for (const ev of filtered) {
-            const k = btsKey(ev);
-            if (seen.has(k)) continue;
-            seen.add(k);
-            currentKeys.add(k);
-            btsy.push({key: k, ev});
-        }
+      for (const [key, rec] of eventLayers.entries()){
+        if (!key.startsWith('ev:')) continue;
+        const idx = Number(key.slice(3));
+        const ev = events[idx];
+        if (!ev) continue;
 
-        outCount.textContent = `| zdarzeń w oknie: ${filtered.length}, BTS w oknie: ${btsy.length}, cache: ${btsLayers.size}`;
+        const dist = distanceOutsideWindowMs(ev, f, t);
 
-        // active / create
-        for (const item of btsy) {
-            const key = item.key;
-            const ev = item.ev;
+        if (dist === 0) {
+          if (rec.state !== 'active') {
+            rec.state = 'active';
+            addToActive(rec);
+            layerFading.removeLayer(rec.marker);
+            layerFading.removeLayer(rec.rangeCircle);
+            layerFading.removeLayer(rec.azLine);
+            if (rec.sector) layerFading.removeLayer(rec.sector);
+          }
+          setLayerOpacity(rec, 1.0);
+        } else {
+          const alpha = (fadeMs <= 0) ? 0 : clamp(1.0 - (dist / fadeMs), 0, 1);
 
-            if (!btsLayers.has(key)) {
-                const layers = createBtsLayers(ev);
-                if (!layers) continue;
-
-                const rec = {
-                    ...layers,
-                    createdAtMs: now,
-                    lastSeenMs: now,
-                    state: 'active',
-                    fadeStartMs: null
-                };
-
-                setLayerOpacity(rec, 1.0);
-                addToActive(rec);
-                btsLayers.set(key, rec);
+          if (alpha <= 0) {
+            if (rec.state === 'active') {
+              layerActive.removeLayer(rec.marker);
+              layerActive.removeLayer(rec.rangeCircle);
+              layerActive.removeLayer(rec.azLine);
+              if (rec.sector) layerActive.removeLayer(rec.sector);
             } else {
-                const rec = btsLayers.get(key);
-                rec.lastSeenMs = now;
-
-                if (rec.state === 'fading') {
-                    rec.state = 'active';
-                    rec.fadeStartMs = null;
-                    setLayerOpacity(rec, 1.0);
-
-                    addToActive(rec);
-                    layerFading.removeLayer(rec.marker);
-                    layerFading.removeLayer(rec.rangeCircle);
-                    layerFading.removeLayer(rec.azLine);
-                    if (rec.sector) layerFading.removeLayer(rec.sector);
-                }
+              removeCompletely(rec);
             }
+            eventLayers.delete(key);
+            continue;
+          }
+
+          if (rec.state !== 'fading') {
+            rec.state = 'fading';
+            moveToFading(rec);
+          }
+          setLayerOpacity(rec, alpha);
         }
+      }
 
-        // fade-out
-        const fadeMs = getFadeMs();
-        for (const [key, rec] of btsLayers.entries()) {
-            if (currentKeys.has(key)) continue;
+      let nearOrIn = 0;
+      let addedNow = 0;
 
-            if (fadeMs === 0) {
-                if (rec.state === 'active') {
-                    layerActive.removeLayer(rec.marker);
-                    layerActive.removeLayer(rec.rangeCircle);
-                    layerActive.removeLayer(rec.azLine);
-                    if (rec.sector) layerActive.removeLayer(rec.sector);
-                } else {
-                    removeCompletely(rec);
-                }
-                btsLayers.delete(key);
-                continue;
-            }
+      for (let i = 0; i < events.length; i++){
+        const ev = events[i];
 
-            if (rec.state !== 'fading') {
-                rec.state = 'fading';
-                rec.fadeStartMs = now;
-                moveToFading(rec);
-            }
+        const dist = distanceOutsideWindowMs(ev, f, t);
+        if (!(dist === 0 || (fadeMs > 0 && dist <= fadeMs))) continue;
 
-            const elapsed = now - rec.fadeStartMs;
-            const alpha = clamp(1.0 - (elapsed / fadeMs), 0, 1);
-            setLayerOpacity(rec, alpha);
+        nearOrIn++;
+        const key = `ev:${i}`;
+        if (eventLayers.has(key)) continue;
+        if (MAX_VISIBLE_EVENTS !== null && eventLayers.size >= MAX_VISIBLE_EVENTS) continue;
 
-            if (alpha <= 0) {
-                removeCompletely(rec);
-                btsLayers.delete(key);
-            }
-        }
+        const layers = createEventLayers(ev);
+        if (!layers) continue;
 
-        // NEW: keep map following visible points (active + fading)
-        maybeFitToVisibleBts();
+        const rec = { ...layers, state: (dist === 0 ? 'active' : 'fading') };
+        const alpha = (dist === 0) ? 1.0 : clamp(1.0 - (dist / fadeMs), 0, 1);
+        setLayerOpacity(rec, alpha);
+
+        if (dist === 0) addToActive(rec);
+        else moveToFading(rec);
+
+        eventLayers.set(key, rec);
+        addedNow++;
+      }
+
+      outCount.textContent =
+        `| w oknie + w pobliżu (do fade): ${nearOrIn}`
+        + ` | wszystkie: ${events.length}`
+        + ` | na mapie (akty+fade): ${eventLayers.size}`
+        + ` | dodano: ${addedNow}`
+        + (MAX_VISIBLE_EVENTS !== null ? ` | limit: ${MAX_VISIBLE_EVENTS}` : '');
+
+      if (debugBox) debugBox.textContent = '';
+      maybeFitToVisible();
     }
 
-    function setPlayUI() {
-        btnPlay.textContent = isPlaying ? 'Pause' : 'Play';
-        btnLeft.disabled = isPlaying;
-        btnRight.disabled = isPlaying;
+    function safeUpdate(){
+      try { updateMembership(); }
+      catch (e) { showErr(e, 'updateMembership'); }
     }
 
-    function stopPlay() {
-        isPlaying = false;
-        if (playTimer) {
-            clearInterval(playTimer);
-            playTimer = null;
-        }
-        setPlayUI();
+    let lastUpdateAt = 0;
+    const updateThrottleMs = 60;
+    function throttledUpdate(){
+      const now = Date.now();
+      if (now - lastUpdateAt < updateThrottleMs) return;
+      lastUpdateAt = now;
+      safeUpdate();
     }
 
-    function shiftWindow(dir) {
-        const stepMin = Math.max(1, Number(shiftMin.value || 10));
-        const delta = stepMin * 60 * 1000;
-
-        const {f, t} = normalize();
-        const win = t - f;
-        if (win <= 0) return;
-
-        let nf = f + dir * delta;
-        let nt = t + dir * delta;
-
-        if (nf < MIN_TS) {
-            nf = MIN_TS;
-            nt = MIN_TS + win;
-        }
-        if (nt > MAX_TS) {
-            nt = MAX_TS;
-            nf = MAX_TS - win;
-        }
-
-        rangeFrom.value = nf;
-        rangeTo.value = nt;
-
-        renderTimeline();
-        redraw();
+    function setPlayUI(){
+      btnPlay.textContent = isPlaying ? 'Pause' : 'Play';
+      btnLeft.disabled = isPlaying;
+      btnRight.disabled = isPlaying;
     }
 
-    function stepForward() {
-        shiftWindow(1);
-        const {t} = normalize();
-        if (t >= MAX_TS) stopPlay();
+    function stopPlay(){
+      isPlaying = false;
+      if (playTimer) { clearInterval(playTimer); playTimer = null; }
+      setPlayUI();
     }
 
-    function startPlay() {
-        if (isPlaying) return;
-        isPlaying = true;
-        setPlayUI();
-        playTimer = setInterval(() => {
-            try {
-                stepForward();
-            } catch (e) {
-                console.error(e);
-                stopPlay();
-            }
-        }, playIntervalMs);
+    function shiftWindow(dir){
+      const stepMin = Math.max(1, Number(shiftMin.value || 10));
+      const delta = stepMin * 60 * 1000;
+
+      const {f,t} = normalize();
+      const win = t - f;
+      if (win <= 0) return;
+
+      let nf = f + dir * delta;
+      let nt = t + dir * delta;
+
+      if (nf < MIN_TS) { nf = MIN_TS; nt = MIN_TS + win; }
+      if (nt > MAX_TS) { nt = MAX_TS; nf = MAX_TS - win; }
+
+      rangeFrom.value = nf;
+      rangeTo.value = nt;
+
+      renderTimeline();
+      safeUpdate();
     }
 
-    function initTimeUI() {
-        if (MIN_TS === null || MAX_TS === null || MIN_TS >= MAX_TS) {
-            outCount.textContent = 'Brak zakresu czasu w danych (min/max).';
-            btnLeft.disabled = true;
-            btnRight.disabled = true;
-            btnReset.disabled = true;
-            btnPlay.disabled = true;
-            return;
-        }
+    function stepForward(){
+      shiftWindow(1);
+      const {t} = normalize();
+      if (t >= MAX_TS) stopPlay();
+    }
 
-        rangeFrom.min = MIN_TS;
-        rangeFrom.max = MAX_TS;
-        rangeFrom.step = STEP;
-        rangeTo.min = MIN_TS;
-        rangeTo.max = MAX_TS;
-        rangeTo.step = STEP;
-
-        rangeFrom.value = MIN_TS;
-        rangeTo.value = clamp(MIN_TS + DEFAULT_WINDOW, MIN_TS + STEP, MAX_TS);
-
-        renderTimeline();
-        redraw(); // will also do auto-zoom if enabled
-
-        window.addEventListener('resize', () => renderTimeline());
-        setPlayUI();
+    function startPlay(){
+      if (isPlaying) return;
+      isPlaying = true;
+      setPlayUI();
+      playTimer = setInterval(() => {
+        try { stepForward(); }
+        catch (e) { showErr(e, 'play'); stopPlay(); }
+      }, playIntervalMs);
     }
 
     let dragMode = null;
     let midOffsetTs = 0;
     let midWin = 0;
 
-    function startDrag(mode, ev) {
-        stopPlay();
-        dragMode = mode;
-        ev.preventDefault();
+    function startDrag(mode, ev){
+      stopPlay();
+      dragMode = mode;
+      ev.preventDefault();
 
-        const {f, t} = normalize();
-        if (mode === 'MID') {
-            midOffsetTs = xToTs(ev.clientX) - f;
-            midWin = t - f;
-        }
+      const {f,t} = normalize();
+      if (mode === 'MID') {
+        midOffsetTs = xToTs(ev.clientX) - f;
+        midWin = t - f;
+      }
 
-        document.addEventListener('mousemove', onDrag);
-        document.addEventListener('mouseup', stopDrag);
+      document.addEventListener('mousemove', onDrag);
+      document.addEventListener('mouseup', stopDrag);
     }
 
-    function onDrag(ev) {
-        if (!dragMode) return;
-        const ts = xToTs(ev.clientX);
+    function onDrag(ev){
+      if (!dragMode) return;
+      const ts = xToTs(ev.clientX);
 
-        if (dragMode === 'L') {
-            rangeFrom.value = clamp(ts, MIN_TS, Number(rangeTo.value));
-        } else if (dragMode === 'R') {
-            rangeTo.value = clamp(ts, Number(rangeFrom.value), MAX_TS);
-        } else if (dragMode === 'MID') {
-            let nf = ts - midOffsetTs;
-            nf = clamp(nf, MIN_TS, MAX_TS - midWin);
-            const nt = nf + midWin;
-            rangeFrom.value = nf;
-            rangeTo.value = nt;
-        }
+      if (dragMode === 'L') {
+        rangeFrom.value = clamp(ts, MIN_TS, Number(rangeTo.value));
+      } else if (dragMode === 'R') {
+        rangeTo.value = clamp(ts, Number(rangeFrom.value), MAX_TS);
+      } else if (dragMode === 'MID') {
+        let nf = ts - midOffsetTs;
+        nf = clamp(nf, MIN_TS, MAX_TS - midWin);
+        const nt = nf + midWin;
+        rangeFrom.value = nf;
+        rangeTo.value = nt;
+      }
 
-        renderTimeline();
-        redraw();
+      renderTimeline();
+      throttledUpdate();
     }
 
-    function stopDrag() {
-        dragMode = null;
-        document.removeEventListener('mousemove', onDrag);
-        document.removeEventListener('mouseup', stopDrag);
+    function stopDrag(){
+      dragMode = null;
+      document.removeEventListener('mousemove', onDrag);
+      document.removeEventListener('mouseup', stopDrag);
+      safeUpdate();
     }
 
     handleL.addEventListener('mousedown', (ev) => startDrag('L', ev));
@@ -765,62 +677,90 @@
     selection.addEventListener('mousedown', (ev) => startDrag('MID', ev));
     midGrip.addEventListener('mousedown', (ev) => startDrag('MID', ev));
 
-
     dtFrom.addEventListener('change', () => {
-        stopPlay();
-        const ts = localInputToTs(dtFrom.value);
-        if (ts === null) return;
-        rangeFrom.value = clamp(ts, MIN_TS, Number(rangeTo.value));
-        renderTimeline();
-        redraw();
+      stopPlay();
+      const ts = localInputToTs(dtFrom.value);
+      if (ts === null) return;
+      rangeFrom.value = clamp(ts, MIN_TS, Number(rangeTo.value));
+      renderTimeline();
+      safeUpdate();
     });
 
     dtTo.addEventListener('change', () => {
-        stopPlay();
-        const ts = localInputToTs(dtTo.value);
-        if (ts === null) return;
-        rangeTo.value = clamp(ts, Number(rangeFrom.value), MAX_TS);
-        renderTimeline();
-        redraw();
+      stopPlay();
+      const ts = localInputToTs(dtTo.value);
+      if (ts === null) return;
+      rangeTo.value = clamp(ts, Number(rangeFrom.value), MAX_TS);
+      renderTimeline();
+      safeUpdate();
     });
 
-    btnLeft.addEventListener('click', () => {
-        stopPlay();
-        shiftWindow(-1);
-    });
-    btnRight.addEventListener('click', () => {
-        stopPlay();
-        shiftWindow(1);
-    });
+    rangeFrom.addEventListener('input', () => { stopPlay(); renderTimeline(); throttledUpdate(); });
+    rangeTo.addEventListener('input', () => { stopPlay(); renderTimeline(); throttledUpdate(); });
+
+    btnLeft.addEventListener('click', () => { stopPlay(); shiftWindow(-1); });
+    btnRight.addEventListener('click', () => { stopPlay(); shiftWindow(1); });
     btnReset.addEventListener('click', () => {
-        stopPlay();
-        rangeFrom.value = MIN_TS;
-        rangeTo.value = clamp(MIN_TS + DEFAULT_WINDOW, MIN_TS + STEP, MAX_TS);
-        renderTimeline();
-        redraw();
+      stopPlay();
+      rangeFrom.value = MIN_TS;
+      rangeTo.value = clamp(MIN_TS + DEFAULT_WINDOW, MIN_TS + STEP, MAX_TS);
+      renderTimeline();
+      safeUpdate();
     });
 
     btnPlay.addEventListener('click', () => {
-        if (isPlaying) stopPlay();
-        else startPlay();
+      if (isPlaying) stopPlay();
+      else startPlay();
     });
 
     const legend = L.control({position: 'bottomright'});
-    legend.onAdd = function () {
-        const div = L.DomUtil.create('div', 'legend');
-        div.innerHTML = `
-        <div><span class="dot"></span> BTS w oknie (active)</div>
+    legend.onAdd = function() {
+      const div = L.DomUtil.create('div', 'legend');
+      div.innerHTML = `
+        <div><span class="dot"></span> Zdarzenie (marker)</div>
         <div style="margin-top:6px;"><span class="line"></span> Linia azymutu</div>
         <div><span class="ring"></span> Zasięg (okrąg; metry)</div>
         <div>Wycinek: sektor (0&lt;kt&lt;360; oś=azymut)</div>
         <div>kt=360: dookólna (sam okrąg)</div>
-        <div style="margin-top:6px;">Auto-zoom obejmuje aktywne i wygasające BTS-y.</div>
+        <div style="margin-top:6px;">Auto-zoom liczy bounds z okręgów/sektorów/azymutów (nie tylko markerów).</div>
       `;
-        return div;
+      return div;
     };
     legend.addTo(map);
 
-    initTimeUI();
-</script>
+    function init(){
+      try {
+        if (MIN_TS === null || MAX_TS === null || MIN_TS >= MAX_TS) {
+          outCount.textContent = 'Brak zakresu czasu w danych (min/max).';
+          btnLeft.disabled = true;
+          btnRight.disabled = true;
+          btnReset.disabled = true;
+          btnPlay.disabled = true;
+          return;
+        }
+
+        const must = {rangeFrom, rangeTo, timeline, selection, midGrip, handleL, handleR, dtFrom, dtTo, btnLeft, btnRight, btnReset, btnPlay};
+        for (const [k,v] of Object.entries(must)){
+          if (!v) throw new Error(`Brak elementu DOM: ${k}`);
+        }
+
+        rangeFrom.min = MIN_TS; rangeFrom.max = MAX_TS; rangeFrom.step = STEP;
+        rangeTo.min = MIN_TS;   rangeTo.max = MAX_TS;   rangeTo.step = STEP;
+
+        rangeFrom.value = MIN_TS;
+        rangeTo.value = clamp(MIN_TS + DEFAULT_WINDOW, MIN_TS + STEP, MAX_TS);
+
+        renderTimeline();
+        safeUpdate();
+
+        window.addEventListener('resize', () => renderTimeline());
+        setPlayUI();
+      } catch (e) {
+        showErr(e, 'init');
+      }
+    }
+
+    init();
+  </script>
 </body>
 </html>
