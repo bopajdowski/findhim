@@ -1,0 +1,37 @@
+name: Release Example (CHANGE ME!)  # Release to (Development | Production | Staging)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  release:
+    name: Release
+    runs-on: self-hosted
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Clone repository if not exists
+        run: |
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i /home/docker/.ssh/id_rsa docker@docker2.srv.cf "if test -d "${{ vars.APP }}_${{ vars.DEMO_ENV }}";
+          then echo "Repository Found - Skipping...";
+          else git clone git@github.com:webtechnika/example_repository.git ${{ vars.APP }}_${{ vars.DEMO_ENV }};
+          fi"
+
+      - name: Set Environment Variables
+        run: |
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i /home/docker/.ssh/id_rsa docker@docker2.srv.cf "cd ${{ vars.APP }}_${{ vars.DEMO_ENV }} &&
+          echo '${{ vars.DEMO_ENVS }}' > .env &&
+          echo DATABASE_PASS=\"${{ secrets.DEMO_DATABASE_PASSWORD }}\" >> .env &&
+          echo SECRET_KEY=\"${{ secrets.DEMO_SECRET_KEY }}\" >> .env &&
+          echo SENTRY_DSN=\"${{ secrets.SENTRY_DSN }}\" >> .env"
+
+
+      - name: Connect to VM and Execute Custom Command
+        run: |
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i /home/docker/.ssh/id_rsa docker@docker2.srv.cf "cd ${{ vars.APP }}_${{ vars.DEMO_ENV }} &&
+          git fetch &&
+          if git branch --list ${{ github.ref_name }};
+          then git checkout ${{ github.ref_name }};
+          else git checkout ${{ github.ref_name }} -b ${{ github.ref_name }}; fi &&
+          docker compose up -d --build"

@@ -1,0 +1,29 @@
+name: Lint - Flake8
+# Should be changed to only workflow_call on project!
+on:
+  push:
+    branches:
+      - main
+      - development
+  pull_request:
+    branches:
+      - main
+      - development
+  workflow_call:
+jobs:
+  lint:
+    runs-on: self-hosted
+    name: Lint
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python 3.12.5
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.12.5
+          cache: 'pip'
+      - name: Install dependencies
+        run: |
+          python -m pip install -r requirements_flake.txt
+      - name: Lint
+        run: flake8

@@ -1,0 +1,211 @@
+name: "${APP}-${ENV_VERSION}"
+
+x-nginx: &nginx_default
+  image: nginx:1.27.1
+  container_name: "${APP}-${ENV_VERSION}-nginx"
+  hostname: "nginx"
+  restart: unless-stopped
+  networks:
+    - mynetwork
+  environment:
+    NGINX_APP: ${APP}
+    NGINX_SERVER_PORT: ${PORT:-8000}
+    HTTP_PORT: 80
+    NGINX_ENVSUBST_OUTPUT_DIR: /etc/nginx
+  volumes:
+    - .:/code
+    - ./Docker/nginx:/etc/nginx/templates
+    - static_volume:/code/apps_static
+    - media_volume:/code/media
+
+x-backend: &backend_default
+  container_name: "${APP}-${ENV_VERSION}-backend"
+  hostname: "backend"
+  restart: unless-stopped
+  networks:
+    - mynetwork
+  build:
+    dockerfile: Docker/${ENV:-prod}/Dockerfile
+    context: .
+    target: backend
+  env_file:
+    - Docker/${ENV:-prod}/.env
+    - .env
+  volumes:
+    - .:/code
+    - static_volume:/code/apps_static
+    - ${MEDIA_VOLUME:-media_volume}:/code/media
+
+x-redis: &redis_default
+  image: redis:7.2.5
+  container_name: "${APP}-${ENV_VERSION}-redis"
+  hostname: "redis"
+  restart: unless-stopped
+  networks:
+    - mynetwork
+  volumes:
+    - redis_volume:/data
+  profiles:
+    - prod
+    - dev
+    - nginx
+
+x-celery: &celery_default
+  build:
+    context: .
+    dockerfile: Docker/${ENV:-prod}/Dockerfile
+    target: celery
+  env_file:
+    - Docker/${ENV:-prod}/.env
+    - .env
+  container_name: "${APP}-${ENV_VERSION}-celery"
+  hostname: "celery"
+  restart: unless-stopped
+  networks:
+    - mynetwork
+
+x-celery-beat: &celery_beat_default
+  build:
+    context: .
+    dockerfile: Docker/${ENV:-prod}/Dockerfile
+    target: celery-beat
+  env_file:
+    - Docker/${ENV:-prod}/.env
+    - .env
+  container_name: "${APP}-${ENV_VERSION}-celery_beat"
+  hostname: "celery-beat"
+  restart: unless-stopped
+  networks:
+    - mynetwork
+
+services:
+  backend-local:
+    <<: *backend_default
+    container_name: "${APP}-${ENV_VERSION}-local-backend"
+    ports:
+      - ${PORT:-8000}:${PORT:-8000}
+    profiles:
+      - dev
+
+  backend:
+    <<: *backend_default
+    volumes:
+      - static_volume:/code/apps_static
+      - ${MEDIA_VOLUME:-media_volume}:/code/media
+    profiles:
+      - prod
+      - nginx
+
+#  redis:
+#    <<: *redis_default
+#
+#  celery-local:
+#    <<: *celery_default
+#    container_name: "${APP}-${ENV_VERSION}-local-celery"
+#    depends_on:
+#      backend-local:
+#        condition: service_started
+#      redis:
+#        condition: service_started
+#    profiles:
+#      - dev
+#
+#  celery:
+#    <<: *celery_default
+#    depends_on:
+#      backend:
+#        condition: service_started
+#      redis:
+#        condition: service_started
+#    profiles:
+#      - prod
+#      - nginx
+#
+#  celery-beat-local:
+#    <<: *celery_beat_default
+#    container_name: "${APP}-${ENV_VERSION}-local-celery-beat"
+#    depends_on:
+#      backend-local:
+#        condition: service_started
+#      redis:
+#        condition: service_started
+#      celery-local:
+#        condition: service_started
+#    profiles:
+#      - dev
+#
+#  celery-beat:
+#    <<: *celery_beat_default
+#    depends_on:
+#      backend:
+#        condition: service_started
+#      redis:
+#        condition: service_started
+#      celery:
+#        condition: service_started
+#    profiles:
+#      - prod
+#      - nginx
+
+  nginx-local:
+    <<: *nginx_default
+    container_name: "${APP}-${ENV_VERSION}-local-nginx"
+    depends_on:
+      backend:
+        condition: service_started
+    networks:
+      - mynetwork
+    ports:
+      - ${PORT:-8000}:80
+    profiles:
+      - nginx
+
+  nginx:
+    <<: *nginx_default
+    depends_on:
+      backend:
+        condition: service_started
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik"
+      - "traefik.http.routers.${APP}_${ENV_VERSION}.rule=Host(${DOMAINS:-`localhost`,`0.0.0.0`})"
+      - "traefik.http.routers.${APP}_${ENV_VERSION}.entrypoints=websecure"
+      - "traefik.http.routers.${APP}_${ENV_VERSION}.tls.certresolver=lets-encrypt"
+    networks:
+      - traefik
+      - mynetwork
+    volumes:
+      - ./Docker/nginx:/etc/nginx/templates
+      - static_volume:/code/apps_static
+      - ${MEDIA_VOLUME:-media_volume}:/code/media/
+    profiles:
+      - prod
+
+  database:
+    image: postgres:${LATEST_PG_VERSION:-13.6} # postgis/postgis:13-3.3
+    environment:
+      - POSTGRES_PASSWORD=password
+    container_name: "${APP}-${ENV_VERSION}-database"
+    restart: unless-stopped
+    networks:
+      - mynetwork
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    profiles:
+      - db
+
+volumes:
+  postgres_data:
+    name: "${APP}-${ENV_VERSION}-database"
+  redis_volume:
+    name: "${APP}-${ENV_VERSION}-redis"
+  static_volume:
+    name: "${APP}-${ENV_VERSION}-static"
+  media_volume:
+    name: "${APP}-${ENV_VERSION}-media"
+
+networks:
+  mynetwork:
+    name: "${APP}-${ENV_VERSION}-network"
+  traefik:
+    external: true

@@ -1,0 +1,7 @@
+gunicorn  # required if running nginx compose file (do not touch)
+factory_boy
+isort==5.13.2
+freezegun
+pre-commit
+
+-r requirements_flake.txt

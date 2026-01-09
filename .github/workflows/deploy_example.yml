@@ -1,0 +1,36 @@
+name: Deploy Example (CHANGE ME!)  # Deploy to (Development | Production | Staging)
+
+on:
+  push:
+    branches:
+      - development-disabled  # remove disabled
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: self-hosted
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Clone repository if not exists
+        run: |
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i /home/docker/.ssh/id_rsa docker@docker2.srv.cf "if test -d "${{ vars.APP }}_${{ vars.DEV_ENV }}";
+          then echo "Repository Found - Skipping...";
+          else git clone -b ${{ github.ref_name }} git@github.com:webtechnika/example_repository.git ${{ vars.APP }}_${{ vars.DEV_ENV }};
+          fi"
+
+      - name: Set Environment Variables
+        run: |
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i /home/docker/.ssh/id_rsa docker@docker2.srv.cf "cd ${{ vars.APP }}_${{ vars.DEV_ENV }} &&
+          echo '${{ vars.DEV_ENVS }}' > .env &&
+          echo DATABASE_PASS=\"${{ secrets.DEV_DATABASE_PASSWORD }}\" >> .env &&
+          echo SECRET_KEY=\"${{ secrets.DEV_SECRET_KEY }}\" >> .env &&
+          echo SENTRY_DSN=\"${{ secrets.SENTRY_DSN }}\" >> .env"
+
+
+      - name: Connect to VM and Execute Custom Command
+        run: |
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i /home/docker/.ssh/id_rsa docker@docker2.srv.cf "cd ${{ vars.APP }}_${{ vars.DEV_ENV }} &&
+          git pull &&
+          docker compose up -d --build"

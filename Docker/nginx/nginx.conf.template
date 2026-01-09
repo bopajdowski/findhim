@@ -1,0 +1,30 @@
+worker_processes 4;
+events {
+    worker_connections 1024;
+    multi_accept on;
+    use epoll;
+}
+http {
+    include /etc/nginx/templates/basic.conf;
+    include /etc/nginx/templates/logs.conf;
+    include /etc/nginx/templates/gzip.conf;
+
+    upstream ${NGINX_APP} {
+       server backend:${NGINX_SERVER_PORT};
+    }
+    server {
+       listen ${HTTP_PORT};
+       location / {
+        proxy_pass http://${NGINX_APP};
+        include /etc/nginx/templates/proxy.conf;
+       }
+       location /static/ {
+        alias /code/apps_static/;
+        include /etc/nginx/templates/static_media.conf;
+       }
+       location /media/ {
+        alias /code/media/;
+        include /etc/nginx/templates/static_media.conf;
+       }
+    }
+}

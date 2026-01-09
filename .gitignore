@@ -1,0 +1,27 @@
+# Created by .ignore support plugin (hsz.mobi)
+
+project/settings_local.py
+*.pyc
+*.scssc
+.idea/*
+.idea/workspace.xml
+
+apps_static/
+media/
+project/whoosh_index/
+logs/
+
+templates/unify/*
+templates/Template/**
+
+mydatabase
+db.sqlite3
+/.env
+.env-copy
+
+static/scss/.sass-cache/*
+
+public
+venv/
+
+*.md.backup

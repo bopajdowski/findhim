@@ -1,0 +1,11 @@
+# Code Pep
+flake8
+
+# Code Pep addons
+flake8-blind-except
+flake8-docstrings
+flake8-isort
+flake8-pep3101
+flake8-pyproject
+flake8-quotes
+flake8-string-format
