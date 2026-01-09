@@ -41,12 +41,14 @@ INSTALLED_APPS = [
     # django apps
     'django.contrib.admin',
     'django.contrib.auth',
+    'django.contrib.gis',
     'django.contrib.sites',
     'django.contrib.flatpages',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'apps.core'
 ]
 
 SITE_ID = 1
@@ -98,7 +100,7 @@ WSGI_APPLICATION = 'project.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.postgresql',
+        'ENGINE': 'django.contrib.gis.db.backends.postgis',
         'NAME': env.str('DATABASE_NAME', 'postgres'),
         'USER': env.str('DATABASE_USER', 'postgres'),
         'PASSWORD': env.str('DATABASE_PASS', 'postgres'),
@@ -106,6 +108,7 @@ DATABASES = {
         'PORT': env.int('DATABASE_PORT', 5432),
     }
 }
+
 
 # Password validation
 # https://docs.djangoproject.com/en/3.1/ref/settings/#auth-password-validators

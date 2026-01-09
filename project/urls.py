@@ -20,6 +20,11 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import path
 
+from apps.core.views import operator1_upload, operator1_view
+
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('operator1/', operator1_upload, name='operator1_upload'),
+    path('view/<uuid:uuid>/', operator1_view, name='operator1_view'),
+
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

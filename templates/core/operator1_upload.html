@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head><title>Upload Operator1</title></head>
+<body>
+<h1>Upload pliku XLSX Operator1</h1>
+{% if messages %}
+    {% for message in messages %}
+        <div class="message {% if message.tags %}{{ message.tags }}{% endif %}">
+            {{ message|safe }}  <!-- safe dla HTML linku -->
+        </div>
+        <style>
+            .success { color: green; background: #d4edda; padding: 10px; margin: 10px 0; }
+            .error { color: red; background: #f8d7da; padding: 10px; margin: 10px 0; }
+        </style>
+    {% endfor %}
+{% endif %}
+
+<form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    <label>Plik XLSX: <input type="file" name="plik" accept=".xlsx" required></label><br><br>
+    <button type="submit">Upload i zapisz do bazy</button>
+</form>
+<p><strong>Usuwanie:</strong> DaneOperator1.objects.filter(import_uuid='uuid-tu').delete()</p>
+</body>
+</html>
